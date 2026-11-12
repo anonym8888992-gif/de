@@ -1,257 +1,244 @@
-import { DISTRICTS, PROP_KINDS, type PropKind } from '../config';
-import { mulberry32, pick } from './rng';
+import { AVENUES, BIZ, BLOCK, DISTRICTS, STREETS, TILE, type BizKind } from '../config';
+import { mulberry32, pick, shuffle } from './rng';
 
-export const BLOCKS_X = 6;
-export const BLOCKS_Y = 4;
-export const BLOCK = 12; // 2 road tiles + 10 block tiles
-export const ROAD_H = 2 + BLOCKS_Y * BLOCK;
-export const WATER_ROWS = 6;
-export const MAP_W = 2 + BLOCKS_X * BLOCK;
-export const MAP_H = ROAD_H + WATER_ROWS;
+export const BX = 6;
+export const BY = 5;
+export const CITY_W = 2 + BX * BLOCK; // 74 tiles
+export const BEACH = 4;
+export const OCEAN = 18;
+export const MAP_W = CITY_W + BEACH + OCEAN;
+export const MAP_H = 2 + BY * BLOCK;
+export const WORLD_W = MAP_W * TILE;
+export const WORLD_H = MAP_H * TILE;
 
-export const enum T {
-  Ground = 0,
-  Road = 1,
-  Sidewalk = 2,
-  Lot = 3,
-  Water = 4,
-  Crosswalk = 5,
-}
-
-export type BlockType = 'buildings' | 'park' | 'parking';
+export type DecorStyle = 'house' | 'apartment' | 'tower' | 'shop' | 'deco' | 'shed' | 'containers' | 'lotpark' | 'pool';
 
 export interface Block {
+  id: number;
   bx: number;
   by: number;
+  /** tile coords of the 10x10 block (incl. sidewalk ring) */
   x: number;
   y: number;
   district: number;
-  type: BlockType;
+  name: string;
 }
 
 export interface Lot {
   id: number;
+  block: number;
+  /** tile coords */
   x: number;
   y: number;
   w: number;
   h: number;
-  district: number;
-  kind: PropKind;
+  kind: BizKind | 'decor';
+  decor: DecorStyle;
   name: string;
   price: number;
   seed: number;
-  /** Sidewalk tile in front of the lot, used as the door for walkers. */
-  doorX: number;
-  doorY: number;
 }
 
 export interface CityMap {
-  tiles: Uint8Array;
-  lotAt: Int16Array;
-  districtAt: Uint8Array;
   blocks: Block[];
   lots: Lot[];
-  walkByDistrict: number[][];
+  /** lot id per tile, -1 if none */
+  lotAt: Int16Array;
+  /** block id per tile (incl. its sidewalk ring), -1 for roads / water */
+  blockAt: Int16Array;
+  palms: { x: number; y: number; s: number }[];
   lamps: { x: number; y: number }[];
-  trees: { x: number; y: number; r: number; tone: number }[];
+  starterLot: number;
+  marinaLot: number;
 }
 
-export function districtOfBlock(bx: number, by: number): number {
-  if (bx >= 4) return 2;
-  if (by <= 1) return bx <= 1 ? 0 : 1;
-  return 3;
+export function districtOf(bx: number, by: number): number {
+  if (by >= 3) return bx <= 2 ? 3 : 4;
+  if (bx <= 1) return 0;
+  if (bx <= 3) return 1;
+  return 2;
 }
 
-export function isRoadTile(x: number, y: number): boolean {
-  if (y >= ROAD_H) return false;
-  return x % BLOCK < 2 || y % BLOCK < 2;
-}
+const WANT: Record<number, [BizKind, number][]> = {
+  0: [['diner', 2], ['pawnshop', 1], ['laundromat', 1], ['motel', 1], ['safehouse', 1], ['videostore', 1]],
+  1: [['nightclub', 1], ['carlot', 1], ['videostore', 1], ['pawnshop', 1], ['laundromat', 1], ['diner', 1]],
+  2: [['nightclub', 2], ['motel', 2], ['arcade', 1], ['diner', 1]],
+  3: [['safehouse', 2], ['laundromat', 1], ['arcade', 1], ['videostore', 1], ['diner', 1], ['pawnshop', 1]],
+  4: [['warehouse', 2], ['carlot', 1], ['diner', 1], ['safehouse', 1]],
+};
 
-export function generateCity(seed = 1337): CityMap {
+const DECOR: Record<number, DecorStyle[]> = {
+  0: ['house', 'shop', 'apartment', 'shop', 'house'],
+  1: ['tower', 'tower', 'apartment', 'lotpark'],
+  2: ['deco', 'deco', 'pool', 'deco'],
+  3: ['house', 'house', 'house', 'apartment', 'pool'],
+  4: ['shed', 'containers', 'shed', 'containers'],
+};
+
+export function generateCity(seed = 1986): CityMap {
   const rng = mulberry32(seed);
-  const tiles = new Uint8Array(MAP_W * MAP_H);
-  const lotAt = new Int16Array(MAP_W * MAP_H).fill(-1);
-  const districtAt = new Uint8Array(MAP_W * MAP_H);
   const blocks: Block[] = [];
   const lots: Lot[] = [];
-  const lamps: { x: number; y: number }[] = [];
-  const trees: CityMap['trees'] = [];
+  const lotAt = new Int16Array(MAP_W * MAP_H).fill(-1);
+  const blockAt = new Int16Array(MAP_W * MAP_H).fill(-1);
+  const palms: CityMap['palms'] = [];
+  const lamps: CityMap['lamps'] = [];
 
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const i = y * MAP_W + x;
-      if (y >= ROAD_H) tiles[i] = T.Water;
-      else if (isRoadTile(x, y)) {
-        const rx = x % BLOCK < 2;
-        const ry = y % BLOCK < 2;
-        // Crosswalks line up with the sidewalk ring next to each intersection.
-        const cross = (rx && !ry && (y % BLOCK === 2 || y % BLOCK === 11)) || (ry && !rx && (x % BLOCK === 2 || x % BLOCK === 11));
-        tiles[i] = cross ? T.Crosswalk : T.Road;
-      } else tiles[i] = T.Ground;
-      const bx = Math.min(BLOCKS_X - 1, Math.floor(Math.max(0, x - 1) / BLOCK));
-      const by = Math.min(BLOCKS_Y - 1, Math.floor(Math.max(0, Math.min(y, ROAD_H - 1) - 1) / BLOCK));
-      districtAt[i] = districtOfBlock(bx, by);
-    }
-  }
+  for (let by = 0; by < BY; by++) {
+    for (let bx = 0; bx < BX; bx++) {
+      const id = blocks.length;
+      const x = bx * BLOCK + 2;
+      const y = by * BLOCK + 2;
+      const district = districtOf(bx, by);
+      blocks.push({ id, bx, by, x, y, district, name: `${STREETS[by]} & ${AVENUES[bx]}` });
+      for (let ty = y; ty < y + 10; ty++) for (let tx = x; tx < x + 10; tx++) blockAt[ty * MAP_W + tx] = id;
 
-  const special: Record<string, BlockType> = { '1,1': 'park', '5,2': 'park', '3,3': 'parking' };
+      // lot layout inside the 8x8 interior
+      const ix = x + 1;
+      const iy = y + 1;
+      const r = rng();
+      let rects: [number, number, number, number][];
+      if (district === 1) rects = r < 0.4 ? [[0, 0, 8, 8]] : r < 0.75 ? [[0, 0, 8, 4], [0, 4, 8, 4]] : [[0, 0, 4, 8], [4, 0, 4, 4], [4, 4, 4, 4]];
+      else if (district === 4) rects = r < 0.5 ? [[0, 0, 8, 4], [0, 4, 8, 4]] : [[0, 0, 4, 8], [4, 0, 4, 8]];
+      else if (district === 2) rects = r < 0.5 ? [[0, 0, 4, 8], [4, 0, 4, 4], [4, 4, 4, 4]] : [[0, 0, 4, 4], [4, 0, 4, 4], [0, 4, 8, 4]];
+      else rects = r < 0.6 ? [[0, 0, 4, 4], [4, 0, 4, 4], [0, 4, 4, 4], [4, 4, 4, 4]] : [[0, 0, 8, 4], [0, 4, 4, 4], [4, 4, 4, 4]];
+      // the marina block keeps its east half for the docks
+      if (bx === 5 && by === 4) rects = [[0, 0, 4, 8], [4, 0, 4, 8]];
+      for (const [lx, ly, w, h] of rects) {
+        lots.push({
+          id: lots.length, block: id, x: ix + lx, y: iy + ly, w, h, kind: 'decor',
+          decor: pick(DECOR[district], rng), name: '', price: 0, seed: rng(),
+        });
+      }
 
-  for (let by = 0; by < BLOCKS_Y; by++) {
-    for (let bx = 0; bx < BLOCKS_X; bx++) {
-      const x0 = bx * BLOCK + 2;
-      const y0 = by * BLOCK + 2;
-      const district = districtOfBlock(bx, by);
-      const type = special[`${bx},${by}`] ?? 'buildings';
-      blocks.push({ bx, by, x: x0, y: y0, district, type });
-      for (let y = y0; y < y0 + 10; y++) {
-        for (let x = x0; x < x0 + 10; x++) {
-          const ring = x === x0 || x === x0 + 9 || y === y0 || y === y0 + 9;
-          tiles[y * MAP_W + x] = ring ? T.Sidewalk : T.Lot;
+      // palms on the sidewalk ring (not Downtown)
+      if (district !== 1 && district !== 4) {
+        for (let k = 0; k < 4; k++) {
+          if (rng() < 0.6) palms.push({ x: (x + 2.5 + k * 1.9) * TILE, y: (y + 0.5) * TILE, s: 0.8 + rng() * 0.4 });
+          if (rng() < 0.6) palms.push({ x: (x + 2.5 + k * 1.9) * TILE, y: (y + 9.5) * TILE, s: 0.8 + rng() * 0.4 });
         }
       }
-      for (const [lx, ly] of [[x0, y0], [x0 + 9, y0], [x0, y0 + 9], [x0 + 9, y0 + 9]]) lamps.push({ x: lx, y: ly });
-      // Street trees on the sidewalk mid-sections.
-      for (const [tx, ty] of [[x0 + 4, y0], [x0 + 4, y0 + 9], [x0, y0 + 5], [x0 + 9, y0 + 5]]) {
-        if (rng() < 0.55) trees.push({ x: tx + 0.5, y: ty + 0.5, r: 9 + rng() * 4, tone: rng() });
-      }
-      if (type === 'park') {
-        for (let k = 0; k < 14; k++) {
-          const tx = x0 + 1.5 + rng() * 7;
-          const ty = y0 + 1.5 + rng() * 7;
-          // keep the pond in the middle clear
-          if (Math.hypot(tx - (x0 + 5), ty - (y0 + 5)) < 2.6) continue;
-          trees.push({ x: tx, y: ty, r: 12 + rng() * 10, tone: rng() });
-        }
-        continue;
-      }
-      if (type === 'parking') continue;
-
-      const ix = x0 + 1;
-      const iy = y0 + 1;
-      const rects: [number, number, number, number][] = [];
-      if (district === 0 || district === 2) {
-        rects.push([ix, iy, 4, 4], [ix + 4, iy, 4, 4], [ix, iy + 4, 4, 4], [ix + 4, iy + 4, 4, 4]);
-      } else if (district === 1) {
-        const r = rng();
-        if (r < 0.35) rects.push([ix, iy, 8, 8]);
-        else if (r < 0.7) rects.push([ix, iy, 8, 4], [ix, iy + 4, 8, 4]);
-        else rects.push([ix, iy, 4, 8], [ix + 4, iy, 4, 4], [ix + 4, iy + 4, 4, 4]);
-      } else {
-        if (rng() < 0.4) rects.push([ix, iy, 8, 8]);
-        else rects.push([ix, iy, 8, 4], [ix, iy + 4, 8, 4]);
-      }
-      for (const [x, y, w, h] of rects) {
-        const kind = rollKind(district, w, h, rng);
-        const lot = makeLot(lots.length, x, y, w, h, district, kind, rng, y0, x0);
-        lots.push(lot);
-      }
+      lamps.push({ x: x * TILE + 4, y: y * TILE + 4 }, { x: (x + 10) * TILE - 4, y: y * TILE + 4 });
+      lamps.push({ x: x * TILE + 4, y: (y + 10) * TILE - 4 }, { x: (x + 10) * TILE - 4, y: (y + 10) * TILE - 4 });
     }
   }
 
-  // Guarantee the full roster of purchasable kinds exists somewhere.
-  const want: [PropKind, number, number][] = [
-    ['apartment', 0, 2], ['laundromat', 0, 2], ['garage', 0, 2], ['house', 2, 3], ['carwash', 2, 1], ['carwash', 3, 1],
-    ['warehouse', 3, 2], ['bigwarehouse', 3, 1], ['restaurant', 1, 2], ['apartment', 1, 1], ['laundromat', 1, 1],
-  ];
-  for (const [kind, district, n] of want) {
-    let have = lots.filter((l) => l.kind === kind && l.district === district).length;
-    for (const l of lots) {
-      if (have >= n) break;
-      if (l.kind !== 'decor' || l.district !== district || !fits(kind, l)) continue;
-      convert(l, kind, rng);
-      have++;
+  // marina
+  const marinaBlock = blocks.find((b) => b.bx === 5 && b.by === 4)!;
+  const marina = lots.find((l) => l.block === marinaBlock.id && l.x === marinaBlock.x + 5)!;
+  assign(marina, 'marina', rng);
+
+  // starter stash house
+  const starterBlock = blocks.find((b) => b.bx === 1 && b.by === 4)!;
+  const starter = lots.find((l) => l.block === starterBlock.id)!;
+  assign(starter, 'safehouse', rng);
+  starter.name = 'Uncle Vic\'s Place';
+
+  for (const d of DISTRICTS) {
+    const pool = shuffle(lots.filter((l) => blocks[l.block].district === d.id && l.kind === 'decor'), rng);
+    for (const [kind, n] of WANT[d.id]) {
+      for (let i = 0; i < n; i++) {
+        const big = kind === 'nightclub' || kind === 'warehouse' || kind === 'carlot' || kind === 'motel';
+        const idx = pool.findIndex((l) => (big ? l.w * l.h >= 32 : true));
+        const at = idx >= 0 ? idx : pool.length ? 0 : -1;
+        if (at < 0) break;
+        assign(pool[at], kind, rng);
+        pool.splice(at, 1);
+      }
     }
   }
-
-  // Starter property: the first Old Town lot.
-  const starter = lots.find((l) => l.district === 0)!;
-  convert(starter, 'garage', rng);
-  starter.name = "Grandma's Garage";
 
   for (const l of lots) {
-    for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) lotAt[y * MAP_W + x] = l.id;
+    for (let ty = l.y; ty < l.y + l.h; ty++) for (let tx = l.x; tx < l.x + l.w; tx++) lotAt[ty * MAP_W + tx] = l.id;
   }
 
-  const walkByDistrict: number[][] = DISTRICTS.map(() => []);
-  for (let i = 0; i < tiles.length; i++) if (tiles[i] === T.Sidewalk) walkByDistrict[districtAt[i]].push(i);
-
-  return { tiles, lotAt, districtAt, blocks, lots, walkByDistrict, lamps, trees };
-}
-
-function fits(kind: PropKind, l: Lot): boolean {
-  if (kind === 'bigwarehouse' || kind === 'restaurant') return l.w === 8 && l.h === 8;
-  if (kind === 'warehouse') return l.w * l.h >= 32;
-  return true;
-}
-
-function rollKind(district: number, w: number, h: number, rng: () => number): PropKind {
-  const r = rng();
-  const area = w * h;
-  switch (district) {
-    case 0:
-      return r < 0.18 ? 'apartment' : r < 0.26 ? 'laundromat' : r < 0.33 ? 'garage' : 'decor';
-    case 1:
-      if (area === 64) return r < 0.35 ? 'restaurant' : 'decor';
-      return r < 0.25 ? 'apartment' : r < 0.32 ? 'laundromat' : 'decor';
-    case 2:
-      return r < 0.22 ? 'house' : r < 0.28 ? 'carwash' : 'decor';
-    default:
-      if (area === 64) return r < 0.4 ? 'bigwarehouse' : 'decor';
-      return r < 0.3 ? 'warehouse' : r < 0.4 ? 'carwash' : 'decor';
+  // beach palms
+  for (let ty = 2; ty < MAP_H - 2; ty += 3) {
+    if (rng() < 0.7) palms.push({ x: (CITY_W + 0.6 + rng() * 1.2) * TILE, y: (ty + rng()) * TILE, s: 1 + rng() * 0.4 });
   }
+
+  return { blocks, lots, lotAt, blockAt, palms, lamps, starterLot: starter.id, marinaLot: marina.id };
 }
 
-function convert(l: Lot, kind: PropKind, rng: () => number) {
+function assign(l: Lot, kind: BizKind, rng: () => number) {
+  const def = BIZ[kind];
   l.kind = kind;
-  const def = PROP_KINDS[kind];
   l.name = pick(def.names, rng);
-  const mult = 0.9 + rng() * 0.35 + (l.district === 1 ? 0.25 : 0);
-  l.price = Math.round((def.price * mult) / 500) * 500;
+  l.price = Math.round((def.price * (0.9 + rng() * 0.25)) / 500) * 500;
 }
 
-function makeLot(
-  id: number, x: number, y: number, w: number, h: number, district: number, kind: PropKind, rng: () => number,
-  by0: number, bx0: number,
-): Lot {
-  // Door faces whichever block edge the lot touches (bottom preferred).
-  let doorX = x + Math.floor(w / 2);
-  let doorY = y + h;
-  if (y + h !== by0 + 9) {
-    if (y === by0 + 1) doorY = by0;
-    else if (x === bx0 + 1) { doorX = bx0; doorY = y + Math.floor(h / 2); }
-    else { doorX = bx0 + 9; doorY = y + Math.floor(h / 2); }
+export function neighbours(map: CityMap, id: number): number[] {
+  const b = map.blocks[id];
+  const out: number[] = [];
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx = b.bx + dx;
+    const ny = b.by + dy;
+    if (nx < 0 || ny < 0 || nx >= BX || ny >= BY) continue;
+    out.push(ny * BX + nx);
   }
-  const lot: Lot = { id, x, y, w, h, district, kind, name: '', price: 0, seed: rng(), doorX, doorY };
-  convert(lot, kind, rng);
-  return lot;
+  return out;
 }
 
-export function isWalkable(map: CityMap, i: number): boolean {
-  const t = map.tiles[i];
-  return t === T.Sidewalk || t === T.Crosswalk;
+// ---------------------------------------------------------------------------
+// Road graph. Intersections (i, j) for i in 0..BX, j in 0..BY. The road centre
+// line sits on the boundary between the two road tiles.
+
+export interface Pt {
+  x: number;
+  y: number;
 }
 
-/** BFS over sidewalks and crosswalks. Returns tile indices excluding start. */
-export function cityPath(map: CityMap, from: number, to: number): number[] | null {
-  if (from === to) return [];
-  const prev = new Int32Array(map.tiles.length).fill(-1);
-  prev[from] = from;
-  const q = [from];
-  for (let h = 0; h < q.length; h++) {
-    const c = q[h];
-    const cx = c % MAP_W;
-    const cy = (c / MAP_W) | 0;
-    const ns = [cx > 0 ? c - 1 : -1, cx < MAP_W - 1 ? c + 1 : -1, cy > 0 ? c - MAP_W : -1, cy < MAP_H - 1 ? c + MAP_W : -1];
-    for (const n of ns) {
-      if (n < 0 || prev[n] !== -1 || !isWalkable(map, n)) continue;
-      prev[n] = c;
-      if (n === to) {
-        const path: number[] = [];
-        for (let p = to; p !== from; p = prev[p]) path.push(p);
-        return path.reverse();
-      }
-      q.push(n);
-    }
+export function node(i: number, j: number): Pt {
+  return { x: (i * BLOCK + 1) * TILE, y: (j * BLOCK + 1) * TILE };
+}
+
+/** Kerb point on the road north of a block, where cars park. */
+export function curb(blockId: number): Pt {
+  const b = blockIdToXY(blockId);
+  return { x: (b.bx * BLOCK + 7) * TILE, y: (b.by * BLOCK + 1) * TILE };
+}
+
+function blockIdToXY(id: number) {
+  return { bx: id % BX, by: Math.floor(id / BX) };
+}
+
+function lPath(i0: number, j0: number, i1: number, j1: number, verticalFirst: boolean): Pt[] {
+  const out: Pt[] = [];
+  if (verticalFirst) {
+    if (j0 !== j1) out.push(node(i0, j1));
+    if (i0 !== i1) out.push(node(i1, j1));
+  } else {
+    if (i0 !== i1) out.push(node(i1, j0));
+    if (j0 !== j1) out.push(node(i1, j1));
   }
-  return null;
+  return out;
+}
+
+/** Route from one block kerb to another, as centre-line waypoints. */
+export function routeBetween(from: number, to: number): Pt[] {
+  const a = blockIdToXY(from);
+  const b = blockIdToXY(to);
+  const out: Pt[] = [node(a.bx + 1, a.by)];
+  out.push(...lPath(a.bx + 1, a.by, b.bx, b.by, Math.random() < 0.5));
+  if (a.bx + 1 === b.bx && a.by === b.by) {
+    // already at the target node
+  }
+  out.push(curb(to));
+  return dedupe(out);
+}
+
+/** Route from an arbitrary intersection to a kerb. */
+export function routeFromNode(i: number, j: number, to: number): Pt[] {
+  const b = blockIdToXY(to);
+  return dedupe([node(i, j), ...lPath(i, j, b.bx, b.by, Math.random() < 0.5), curb(to)]);
+}
+
+/** Route from a kerb to an intersection (e.g. to leave the map). */
+export function routeToNode(from: number, i: number, j: number): Pt[] {
+  const a = blockIdToXY(from);
+  return dedupe([node(a.bx + 1, a.by), ...lPath(a.bx + 1, a.by, i, j, Math.random() < 0.5)]);
+}
+
+function dedupe(p: Pt[]) {
+  return p.filter((q, i) => i === 0 || q.x !== p[i - 1].x || q.y !== p[i - 1].y);
 }

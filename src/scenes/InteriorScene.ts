@@ -1,35 +1,95 @@
 import Phaser from 'phaser';
 import { bus } from '../bus';
-import { STATIONS, TILE } from '../config';
-import { ACTION_TIME, canPlace, placeStation } from '../sim/sim';
+import { BIZ, INK, NEON, PRODUCT_IDS, TILE, type BizKind, type Floor } from '../config';
 import { mulberry32 } from '../sim/rng';
-import { doorCell, interiorSize, map, state, view, type Station, type Worker } from '../state';
-import { HI, makeTex, rr } from '../gfx/textures';
+import { Pix, shade, toTexture } from '../gfx/pix';
+import { map, state, view } from '../state';
 
-const WALL = 18;
+const WALL = 8;
 
-interface StationView {
-  img: Phaser.GameObjects.Image;
-  plants?: Phaser.GameObjects.Image;
-  glow?: Phaser.GameObjects.Image;
-  label: Phaser.GameObjects.Text;
-}
-
-interface WorkerView {
+interface Furn { key: string; x: number; y: number; rot?: number }
+interface Npc {
   spr: Phaser.GameObjects.Image;
-  carry: Phaser.GameObjects.Image;
-  ring: Phaser.GameObjects.Image;
-  name: Phaser.GameObjects.Text;
+  mode: 'dance' | 'sit' | 'stand' | 'walk';
+  x: number;
+  y: number;
+  path: { x: number; y: number }[];
+  wait: number;
+  seed: number;
+  face: number;
 }
+
+/** Fixed furniture per business type, in tile units. */
+const BASE: Record<BizKind, Furn[]> = {
+  safehouse: [
+    { key: 'f_sofa', x: 1, y: 6 }, { key: 'f_tv', x: 2, y: 4 }, { key: 'f_table', x: 6, y: 5 }, { key: 'f_bed', x: 12, y: 5 },
+    { key: 'f_crate', x: 5, y: 1 }, { key: 'f_crate', x: 6, y: 1 }, { key: 'f_plant', x: 12, y: 1 },
+  ],
+  motel: [
+    { key: 'f_bed', x: 1, y: 1 }, { key: 'f_bed', x: 3, y: 1 }, { key: 'f_bed', x: 9, y: 1 }, { key: 'f_counter', x: 10, y: 7 },
+    { key: 'f_tv', x: 4, y: 6 }, { key: 'f_plant', x: 14, y: 8 },
+  ],
+  warehouse: [
+    { key: 'f_crate', x: 2, y: 2 }, { key: 'f_crate', x: 3, y: 2 }, { key: 'f_crate', x: 2, y: 3 }, { key: 'f_crate', x: 5, y: 2 },
+    { key: 'f_crate', x: 5, y: 3 }, { key: 'f_crate', x: 6, y: 3 }, { key: 'f_crate', x: 15, y: 2 }, { key: 'f_crate', x: 16, y: 2 },
+    { key: 'f_crate', x: 16, y: 3 }, { key: 'f_car3', x: 8, y: 8 },
+  ],
+  nightclub: [
+    { key: 'f_bar', x: 1, y: 1 }, { key: 'f_stool', x: 1, y: 2 }, { key: 'f_stool', x: 2, y: 2 }, { key: 'f_stool', x: 3, y: 2 },
+    { key: 'f_table', x: 1, y: 5 }, { key: 'f_table', x: 15, y: 3 }, { key: 'f_plant', x: 16, y: 1 },
+  ],
+  arcade: [
+    { key: 'f_cabinet', x: 12, y: 3 }, { key: 'f_cabinet', x: 12, y: 4 }, { key: 'f_cabinet', x: 12, y: 5 }, { key: 'f_cabinet', x: 12, y: 6 },
+    { key: 'f_pool', x: 5, y: 3 }, { key: 'f_jukebox', x: 1, y: 8 },
+  ],
+  pawnshop: [
+    { key: 'f_shelves', x: 1, y: 7 }, { key: 'f_shelves', x: 7, y: 7 }, { key: 'f_tv', x: 6, y: 1 }, { key: 'f_plant', x: 10, y: 4 },
+  ],
+  laundromat: [
+    { key: 'f_washer', x: 5, y: 1 }, { key: 'f_washer', x: 6, y: 1 }, { key: 'f_washer', x: 7, y: 1 },
+    { key: 'f_sofa', x: 5, y: 6 }, { key: 'f_plant', x: 10, y: 6 },
+  ],
+  videostore: [
+    { key: 'f_shelves', x: 1, y: 3 }, { key: 'f_shelves', x: 5, y: 3 }, { key: 'f_counter', x: 7, y: 7 }, { key: 'f_plant', x: 10, y: 4 },
+  ],
+  carlot: [
+    { key: 'f_car', x: 6, y: 2 }, { key: 'f_car2', x: 6, y: 5 }, { key: 'f_car3', x: 10, y: 8 }, { key: 'f_crate', x: 16, y: 9 },
+  ],
+  diner: [
+    { key: 'f_counter', x: 3, y: 2 },
+    { key: 'f_stool', x: 4, y: 3 }, { key: 'f_stool', x: 5, y: 3 }, { key: 'f_stool', x: 6, y: 3 }, { key: 'f_stool', x: 7, y: 3 },
+    { key: 'f_table', x: 6, y: 6 }, { key: 'f_table', x: 9, y: 5 }, { key: 'f_plant', x: 12, y: 7 },
+  ],
+  marina: [
+    { key: 'f_crate', x: 2, y: 5 }, { key: 'f_crate', x: 3, y: 5 }, { key: 'f_boat', x: 12, y: 2 },
+  ],
+};
+
+const FLOORS: Record<BizKind, { floor: Floor; color: number }> = {
+  safehouse: { floor: 'linoleum', color: 0xc9c08a },
+  motel: { floor: 'carpet', color: 0x2f6a5a },
+  warehouse: { floor: 'concrete', color: 0x8a8a92 },
+  nightclub: { floor: 'dance', color: 0x1a1024 },
+  arcade: { floor: 'carpet', color: 0x2a1a5a },
+  pawnshop: { floor: 'wood', color: 0x8a5a34 },
+  laundromat: { floor: 'tile', color: 0xe8f0f4 },
+  videostore: { floor: 'carpet', color: 0x5a1a2a },
+  carlot: { floor: 'concrete', color: 0x9a9aa2 },
+  diner: { floor: 'checker', color: 0xf0ece4 },
+  marina: { floor: 'wood', color: 0x9a6a3e },
+};
 
 export class InteriorScene extends Phaser.Scene {
   private lotId = -1;
-  private stations = new Map<number, StationView>();
-  private workers = new Map<number, WorkerView>();
-  private bars!: Phaser.GameObjects.Graphics;
-  private gridG!: Phaser.GameObjects.Graphics;
-  private ghost!: Phaser.GameObjects.Image;
-  private ghostCell = { x: -1, y: -1 };
+  private kind!: BizKind;
+  private w = 0;
+  private h = 0;
+  private blocked!: Uint8Array;
+  private npcs: Npc[] = [];
+  private crew = new Map<number, Npc>();
+  private upgrades = new Map<string, Phaser.GameObjects.Image>();
+  private danceTiles: Phaser.GameObjects.Rectangle[] = [];
+  private bricks: Phaser.GameObjects.Image[] = [];
   private t = 0;
   private offs: (() => void)[] = [];
   private drag = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
@@ -40,363 +100,361 @@ export class InteriorScene extends Phaser.Scene {
 
   init(data: { lotId: number }) {
     this.lotId = data.lotId;
-    this.stations.clear();
-    this.workers.clear();
+    this.kind = map.lots[data.lotId].kind as BizKind;
+    [this.w, this.h] = BIZ[this.kind].room;
+    this.npcs = [];
+    this.crew.clear();
+    this.upgrades.clear();
+    this.danceTiles = [];
+    this.bricks = [];
   }
 
   create() {
-    const [w, h] = interiorSize(this.lotId);
-    const key = `floor_${this.lotId}`;
-    makeTex(this, key, w * TILE + WALL * 2, h * TILE + WALL * 2 + 10, (ctx) => drawRoom(ctx, this.lotId, w, h), HI);
-    this.add.image(-WALL, -WALL, key).setOrigin(0).setScale(1 / HI).setDepth(0);
-    this.gridG = this.add.graphics().setDepth(1);
-    this.bars = this.add.graphics().setDepth(30);
-    this.ghost = this.add.image(0, 0, 'st_tent').setOrigin(0).setScale(1 / HI).setDepth(25).setAlpha(0.65).setVisible(false);
+    const key = `room_${this.lotId}`;
+    toTexture(this, key, drawRoom(this.kind, this.w, this.h, this.lotId));
+    this.add.image(-WALL, -WALL, key).setOrigin(0).setDepth(0);
 
-    this.cameras.main.setBackgroundColor('#121418');
-    this.fitCamera();
-    this.scale.on('resize', this.fitCamera, this);
+    this.blocked = new Uint8Array(this.w * this.h);
+    if (this.kind === 'nightclub') this.makeDanceFloor();
+    if (this.kind === 'marina') for (let y = 0; y < this.h; y++) for (let x = 10; x < this.w; x++) this.blocked[y * this.w + x] = 1;
+    for (const f of BASE[this.kind]) this.placeFurn(f);
+    this.syncUpgrades();
+    this.spawnNpcs();
 
-    this.rebuildStations();
+    const cam = this.cameras.main;
+    cam.setBackgroundColor('#0b0614');
+    cam.setRoundPixels(true);
+    this.fit();
+    this.scale.on('resize', this.fit, this);
+
     this.setupInput();
-
-    this.offs.push(
-      bus.on('changed', () => this.rebuildStations()),
-      bus.on('placing', () => this.updateGhost()),
-    );
+    this.offs.push(bus.on('changed', () => this.syncUpgrades()));
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.offs.forEach((f) => f());
-      this.scale.off('resize', this.fitCamera, this);
+      this.scale.off('resize', this.fit, this);
     });
+    bus.emit('crt');
   }
 
-  private fitCamera() {
-    const [w, h] = interiorSize(this.lotId);
+  private fit() {
     const cam = this.cameras.main;
-    const availW = this.scale.width - 380;
-    const availH = this.scale.height - 200;
-    const z = Phaser.Math.Clamp(Math.min(availW / (w * TILE + WALL * 2), availH / (h * TILE + WALL * 2)), 0.6, 1.7);
+    const roomW = this.w * TILE + WALL * 2;
+    const roomH = this.h * TILE + WALL * 2;
+    const z = Math.max(1, Math.min(4, Math.floor(Math.min((this.scale.width - 420) / roomW, (this.scale.height - 200) / roomH))));
     cam.setZoom(z);
-    // offset so the room sits left of the side panel and above the toolbar
-    cam.centerOn((w * TILE) / 2 + 170 / z, (h * TILE) / 2 + 20 / z);
+    cam.centerOn((this.w * TILE) / 2 + 190 / z, (this.h * TILE) / 2 + 10 / z);
   }
 
   private setupInput() {
-    this.input.mouse?.disableContextMenu();
-    const kb = this.input.keyboard!;
-    kb.on('keydown-ESC', () => {
-      if (view.placing) {
-        view.placing = null;
-        bus.emit('placing');
-      } else bus.emit('exit');
-    });
+    this.input.keyboard!.on('keydown-ESC', () => bus.emit('exit'));
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.rightButtonDown()) {
-        if (view.placing) { view.placing = null; bus.emit('placing'); }
-        return;
-      }
       this.drag = { down: true, moved: false, x: p.x, y: p.y, sx: this.cameras.main.scrollX, sy: this.cameras.main.scrollY };
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!this.drag.down || !p.isDown) return;
       const cam = this.cameras.main;
-      if (this.drag.down && p.isDown && !view.placing) {
-        const dx = p.x - this.drag.x;
-        const dy = p.y - this.drag.y;
-        if (Math.abs(dx) + Math.abs(dy) > 6) this.drag.moved = true;
-        if (this.drag.moved) {
-          cam.scrollX = this.drag.sx - dx / cam.zoom;
-          cam.scrollY = this.drag.sy - dy / cam.zoom;
-        }
-      }
-      if (view.placing) {
-        const wp = cam.getWorldPoint(p.x, p.y);
-        const d = STATIONS[view.placing];
-        this.ghostCell = { x: Math.round(wp.x / TILE - d.w / 2), y: Math.round(wp.y / TILE - d.h / 2) };
-        this.updateGhost();
-      }
+      const dx = p.x - this.drag.x;
+      const dy = p.y - this.drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) this.drag.moved = true;
+      if (this.drag.moved) { cam.scrollX = this.drag.sx - dx / cam.zoom; cam.scrollY = this.drag.sy - dy / cam.zoom; }
     });
-    this.input.on('pointerup', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+    this.input.on('pointerup', (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (!this.drag.down) return;
       this.drag.down = false;
       if (this.drag.moved) return;
-      if (view.placing) {
-        const type = view.placing;
-        if (placeStation(this.lotId, type, this.ghostCell.x, this.ghostCell.y)) {
-          this.cameras.main.shake(80, 0.002);
-          if (state.dirty + state.clean < STATIONS[type].cost) view.placing = null;
-          bus.emit('placing');
-        }
-        return;
-      }
-      const wk = over.find((o) => o.getData('workerId') !== undefined);
-      const st = over.find((o) => o.getData('stationId') !== undefined);
-      if (wk) view.selection = { type: 'worker', id: wk.getData('workerId') };
-      else if (st) view.selection = { type: 'station', id: st.getData('stationId') };
-      else view.selection = { type: 'lot', id: this.lotId };
-      bus.emit('select');
-    });
-    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      const cam = this.cameras.main;
-      const before = cam.getWorldPoint(p.x, p.y);
-      const nz = Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 0.5, 3);
-      cam.setZoom(nz);
-      cam.scrollX = before.x - cam.width / 2 - (p.x - cam.width / 2) / nz;
-      cam.scrollY = before.y - cam.height / 2 - (p.y - cam.height / 2) / nz;
+      const up = over.find((o) => o.getData('upgrade'));
+      if (up) bus.emit('upgradeFocus', up.getData('upgrade'));
+      const g = over.find((o) => o.getData('goon') !== undefined);
+      if (g) { view.selection = { type: 'goon', id: g.getData('goon') }; bus.emit('select'); }
     });
   }
 
-  private updateGhost() {
-    const type = view.placing;
-    this.gridG.clear();
-    if (!type) {
-      this.ghost.setVisible(false);
+  private placeFurn(f: Furn) {
+    const img = this.add.image(f.x * TILE, f.y * TILE, f.key).setOrigin(0).setDepth(5);
+    this.add.image(f.x * TILE + 2, f.y * TILE + 2, f.key).setOrigin(0).setDepth(4).setTint(0x000000).setAlpha(0.35);
+    const tw = Math.ceil(img.width / TILE);
+    const th = Math.ceil(img.height / TILE);
+    if (f.key !== 'f_stool') {
+      for (let y = f.y; y < Math.min(this.h, f.y + th); y++) for (let x = f.x; x < Math.min(this.w, f.x + tw); x++) this.blocked[y * this.w + x] = 1;
+    }
+    return img;
+  }
+
+  private makeDanceFloor() {
+    const x0 = 5;
+    const y0 = 4;
+    for (let y = 0; y < 5; y++) for (let x = 0; x < 8; x++) {
+      this.danceTiles.push(this.add.rectangle((x0 + x) * TILE + 1, (y0 + y) * TILE + 1, TILE - 2, TILE - 2, 0xffffff).setOrigin(0).setDepth(1));
+    }
+  }
+
+  private syncUpgrades() {
+    const b = state.biz[this.lotId];
+    if (!b) return;
+    for (const u of BIZ[this.kind].upgrades) {
+      const has = b.upgrades.includes(u.id);
+      const cur = this.upgrades.get(u.id);
+      const want = has ? `f_${u.sprite}` : 'f_slot';
+      if (cur && cur.texture.key === want) continue;
+      cur?.destroy();
+      const img = this.add.image(u.slot[0] * TILE, u.slot[1] * TILE, want).setOrigin(0).setDepth(has ? 5 : 3).setInteractive({ useHandCursor: true });
+      img.setData('upgrade', u.id);
+      if (!has) this.tweens.add({ targets: img, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
+      else {
+        img.setScale(0.5);
+        this.tweens.add({ targets: img, scale: 1, duration: 250, ease: 'Back.easeOut' });
+        for (let y = u.slot[1]; y < Math.min(this.h, u.slot[1] + Math.ceil(img.height / TILE)); y++) {
+          for (let x = u.slot[0]; x < Math.min(this.w, u.slot[0] + Math.ceil(img.width / TILE)); x++) this.blocked[y * this.w + x] = 1;
+        }
+      }
+      this.upgrades.set(u.id, img);
+    }
+  }
+
+  private freeCell(rng = Math.random): { x: number; y: number } {
+    for (let k = 0; k < 60; k++) {
+      const x = Math.floor(rng() * this.w);
+      const y = Math.floor(rng() * this.h);
+      if (!this.blocked[y * this.w + x]) return { x, y };
+    }
+    return { x: Math.floor(this.w / 2), y: this.h - 1 };
+  }
+
+  private spawnNpcs() {
+    const k = this.kind;
+    const add = (key: string, x: number, y: number, mode: Npc['mode'], face = 0) => {
+      const spr = this.add.image(x, y, key).setDepth(10);
+      const n: Npc = { spr, mode, x, y, path: [], wait: Math.random() * 3, seed: Math.random() * 10, face };
+      this.npcs.push(n);
+      return n;
+    };
+    const civ = () => `civ${Math.floor(Math.random() * 10)}`;
+    if (k === 'nightclub') {
+      for (let i = 0; i < 14; i++) add(civ(), (5.5 + Math.random() * 7) * TILE, (4.5 + Math.random() * 4) * TILE, 'dance');
+      add(civ(), 2 * TILE, 3 * TILE, 'sit', -Math.PI / 2);
+      add(civ(), 3 * TILE, 3 * TILE, 'sit', -Math.PI / 2);
+    } else if (k === 'arcade') {
+      for (let i = 0; i < 4; i++) add(civ(), 11.3 * TILE, (3.5 + i) * TILE, 'stand', 0);
+      add(civ(), 4.5 * TILE, 4 * TILE, 'stand', 0);
+      add(civ(), 7.5 * TILE, 6 * TILE, 'stand', Math.PI);
+    } else if (k === 'diner') {
+      for (let i = 0; i < 3; i++) add(civ(), (4.4 + i) * TILE, 3.4 * TILE, 'sit', -Math.PI / 2);
+      add(civ(), 5.5 * TILE, 1.6 * TILE, 'walk');
+    } else if (k === 'laundromat') {
+      add(civ(), 6 * TILE, 5.6 * TILE, 'sit', -Math.PI / 2);
+      add(civ(), 6 * TILE, 2.6 * TILE, 'stand', -Math.PI / 2);
+    } else if (k === 'motel' || k === 'videostore' || k === 'pawnshop') {
+      add(civ(), (this.w - 4) * TILE, (this.h - 3) * TILE, 'walk');
+      add(civ(), 3 * TILE, (this.h - 2) * TILE, 'walk');
+    } else if (k === 'carlot' || k === 'marina' || k === 'warehouse') {
+      add('civ8', 9 * TILE, 4 * TILE, 'walk');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+
+  private path(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const W = this.w;
+    const sx = Phaser.Math.Clamp(Math.floor(from.x / TILE), 0, W - 1);
+    const sy = Phaser.Math.Clamp(Math.floor(from.y / TILE), 0, this.h - 1);
+    const start = sy * W + sx;
+    const goal = to.y * W + to.x;
+    const prev = new Int32Array(W * this.h).fill(-1);
+    prev[start] = start;
+    const q = [start];
+    for (let i = 0; i < q.length; i++) {
+      const c = q[i];
+      if (c === goal) break;
+      const cx = c % W;
+      const cy = (c / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= this.h) continue;
+        const n = ny * W + nx;
+        if (prev[n] !== -1 || (this.blocked[n] && n !== goal)) continue;
+        prev[n] = c;
+        q.push(n);
+      }
+    }
+    if (prev[goal] === -1) return [];
+    const out: { x: number; y: number }[] = [];
+    for (let c = goal; c !== start; c = prev[c]) out.push({ x: (c % W) * TILE + 8, y: Math.floor(c / W) * TILE + 8 });
+    return out.reverse();
+  }
+
+  private stepWalker(n: Npc, dt: number) {
+    if (n.path.length) {
+      const t = n.path[0];
+      const dx = t.x - n.x;
+      const dy = t.y - n.y;
+      const d = Math.hypot(dx, dy);
+      const mv = 40 * dt;
+      n.face = Math.atan2(dy, dx);
+      if (d <= mv) { n.x = t.x; n.y = t.y; n.path.shift(); }
+      else { n.x += (dx / d) * mv; n.y += (dy / d) * mv; }
+      const bob = Math.sin(this.t * 14 + n.seed) * 0.08;
+      n.spr.setPosition(Math.round(n.x), Math.round(n.y)).setRotation(n.face + bob);
       return;
     }
-    const [w, h] = interiorSize(this.lotId);
-    this.gridG.lineStyle(1, 0xffffff, 0.12);
-    for (let x = 0; x <= w; x++) this.gridG.lineBetween(x * TILE, 0, x * TILE, h * TILE);
-    for (let y = 0; y <= h; y++) this.gridG.lineBetween(0, y * TILE, w * TILE, y * TILE);
-    const door = doorCell(this.lotId);
-    this.gridG.fillStyle(0xffd54f, 0.15).fillRect(door.x * TILE, (door.y - 1) * TILE, TILE, TILE * 2);
-    const p = state.properties[this.lotId];
-    const ok = !!p && canPlace(p, type, this.ghostCell.x, this.ghostCell.y) && state.dirty + state.clean >= STATIONS[type].cost;
-    this.ghost.setTexture(`st_${type}`).setVisible(this.ghostCell.x > -50).setPosition(this.ghostCell.x * TILE, this.ghostCell.y * TILE).setTint(ok ? 0x88ff99 : 0xff6666);
-  }
-
-  private rebuildStations() {
-    const p = state.properties[this.lotId];
-    if (!p) return;
-    const ids = new Set(p.stations.map((s) => s.id));
-    for (const [id, v] of this.stations) {
-      if (ids.has(id)) continue;
-      v.img.destroy();
-      v.plants?.destroy();
-      v.glow?.destroy();
-      v.label.destroy();
-      this.stations.delete(id);
-    }
-    for (const s of p.stations) {
-      if (this.stations.has(s.id)) continue;
-      const d = STATIONS[s.type];
-      const img = this.add.image(s.x * TILE, s.y * TILE, `st_${s.type}`).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
-      img.setData('stationId', s.id);
-      const v: StationView = {
-        img,
-        label: this.add.text(s.x * TILE + (d.w * TILE) / 2, s.y * TILE - 4, '', {
-          fontFamily: 'Inter, sans-serif', fontStyle: '700', fontSize: '11px', color: '#fff', stroke: '#000', strokeThickness: 3,
-        }).setOrigin(0.5, 1).setDepth(31),
-      };
-      if (s.type === 'tent') v.plants = this.add.image(s.x * TILE + 32, s.y * TILE + 32, 'plants').setDepth(6);
-      if (s.type === 'lab') v.glow = this.add.image(s.x * TILE + 26, s.y * TILE + 30, 'glow_blue').setDepth(7).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
-      if (s.type === 'tent') v.glow = this.add.image(s.x * TILE + 32, s.y * TILE + 32, 'glow_green').setDepth(7).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0).setScale(0.9);
-      this.stations.set(s.id, v);
-      img.setScale(0.6 / HI);
-      this.tweens.add({ targets: img, scale: 1 / HI, duration: 260, ease: 'Back.easeOut' });
-    }
+    n.wait -= dt;
+    n.spr.setRotation(n.face + Math.sin(this.t * 0.8 + n.seed) * 0.3);
+    if (n.wait > 0) return;
+    n.wait = 2 + Math.random() * 5;
+    n.path = this.path(n, this.freeCell());
   }
 
   update(_t: number, deltaMs: number) {
-    this.t += deltaMs / 1000;
-    const p = state.properties[this.lotId];
-    if (!p) return;
-    const g = this.bars;
-    g.clear();
+    const dt = Math.min(0.1, deltaMs / 1000);
+    this.t += dt;
+    const cam = this.cameras.main;
+    cam.setRotation(view.wobble ? Math.sin(this.t * 0.35) * 0.008 : 0);
 
-    for (const s of p.stations) {
-      const v = this.stations.get(s.id);
-      if (!v) continue;
-      this.drawStationState(s, v, g);
+    // dance floor colour cycling
+    const cols = [NEON.pink, NEON.cyan, NEON.yellow, NEON.purple, NEON.orange];
+    this.danceTiles.forEach((r, i) => {
+      const k = Math.floor(this.t * 2.5 + ((i % 8) + Math.floor(i / 8)) * 0.5) % cols.length;
+      r.setFillStyle(cols[(k + i) % cols.length], 0.55 + 0.3 * Math.sin(this.t * 4 + i));
+    });
+
+    for (const n of this.npcs) {
+      if (n.mode === 'dance') {
+        const beat = Math.abs(Math.sin(this.t * 4.2 + n.seed));
+        n.spr.setPosition(Math.round(n.x + Math.sin(this.t * 2 + n.seed) * 3), Math.round(n.y - beat * 2)).setRotation(this.t * 2 + n.seed);
+      } else if (n.mode === 'sit' || n.mode === 'stand') {
+        n.spr.setPosition(Math.round(n.x), Math.round(n.y)).setRotation(n.face + Math.sin(this.t * 1.2 + n.seed) * 0.15);
+      } else this.stepWalker(n, dt);
     }
-    const sel = view.selection;
-    if (sel?.type === 'station') {
-      const s = p.stations.find((st) => st.id === sel.id);
-      if (s) {
-        const d = STATIONS[s.type];
-        g.lineStyle(3, 0xffd54f, 0.6 + Math.sin(this.t * 6) * 0.4).strokeRoundedRect(s.x * TILE - 2, s.y * TILE - 2, d.w * TILE + 4, d.h * TILE + 4, 6);
+
+    this.syncCrew(dt);
+    this.syncStash();
+  }
+
+  private syncCrew(dt: number) {
+    const lot = map.lots[this.lotId];
+    const here = state.goons.filter((g) =>
+      (g.status === 'posted' && g.post?.block === lot.block) || ((g.status === 'idle' || g.status === 'hurt') && this.kind === 'safehouse' && this.lotId === map.starterLot));
+    const ids = new Set(here.map((g) => g.id));
+    for (const g of here) {
+      let n = this.crew.get(g.id);
+      if (!n) {
+        const c = this.freeCell();
+        const spr = this.add.image(c.x * TILE + 8, c.y * TILE + 8, `crew${g.look}`).setDepth(11).setInteractive({ useHandCursor: true });
+        spr.setData('goon', g.id);
+        n = { spr, mode: 'walk', x: c.x * TILE + 8, y: c.y * TILE + 8, path: [], wait: Math.random() * 2, seed: Math.random() * 10, face: 0 };
+        this.crew.set(g.id, n);
       }
+      n.spr.setTint(g.status === 'hurt' ? 0xff8080 : 0xffffff);
+      this.stepWalker(n, dt * (g.status === 'hurt' ? 0.4 : 1));
     }
-
-    this.syncWorkers(g);
-  }
-
-  private drawStationState(s: Station, v: StationView, g: Phaser.GameObjects.Graphics) {
-    const d = STATIONS[s.type];
-    const x = s.x * TILE;
-    const y = s.y * TILE;
-    const bw = d.w * TILE - 8;
-    const bar = (yy: number, frac: number, col: number) => {
-      g.fillStyle(0x000000, 0.6).fillRoundedRect(x + 4, yy, bw, 6, 3);
-      g.fillStyle(col, 1).fillRoundedRect(x + 5, yy + 1, Math.max(0, (bw - 2) * Phaser.Math.Clamp(frac, 0, 1)), 4, 2);
-    };
-    if (s.type === 'tent') {
-      const grow = s.progress;
-      v.plants!.setScale((0.25 + grow * 0.8) / HI).setAlpha(grow > 0.01 ? 1 : 0.3).setTint(grow >= 1 ? 0xb6ff8a : 0xffffff);
-      v.plants!.setAngle(Math.sin(this.t * 1.5 + s.id) * 3);
-      v.glow!.setAlpha(grow >= 1 ? 0.35 + Math.sin(this.t * 4) * 0.2 : 0);
-      bar(y + d.h * TILE + 2, s.water / 100, s.water < 25 ? 0xff5252 : 0x4fc3f7);
-      bar(y + d.h * TILE + 9, grow, grow >= 1 ? 0x8dff7a : 0x66bb6a);
-      v.label.setText(grow >= 1 ? 'READY' : s.water <= 0 ? 'THIRSTY!' : '');
-    } else if (s.type === 'lab') {
-      const cooking = s.labState === 'cooking';
-      v.glow!.setAlpha(cooking ? 0.45 + Math.sin(this.t * 8) * 0.25 : s.labState === 'done' ? 0.6 : 0);
-      if (cooking) bar(y + d.h * TILE + 2, s.progress, 0x5cc8ff);
-      v.label.setText(s.labState === 'done' ? 'BATCH READY' : cooking ? 'COOKING' : '');
-    } else if (s.type === 'table') {
-      const raw = s.raw.herb + s.raw.crystal;
-      v.label.setText(raw ? `${s.raw.herb ? `🌿${s.raw.herb} ` : ''}${s.raw.crystal ? `💎${s.raw.crystal}` : ''} raw` : '');
-    } else if (s.type === 'stash') {
-      const st = state.properties[this.lotId].stash;
-      const parts = [];
-      if (st.herb) parts.push(`🌿${st.herb}`);
-      if (st.crystal) parts.push(`💎${st.crystal}`);
-      if (st.supplies) parts.push(`📦${st.supplies}`);
-      v.label.setText(parts.join(' '));
+    for (const [id, n] of this.crew) {
+      if (ids.has(id)) continue;
+      n.spr.destroy();
+      this.crew.delete(id);
     }
   }
 
-  private syncWorkers(g: Phaser.GameObjects.Graphics) {
-    const alive = new Set<number>();
-    for (const w of state.workers) {
-      if (w.propertyId !== this.lotId || w.inCity) continue;
-      alive.add(w.id);
-      let v = this.workers.get(w.id);
-      if (!v) v = this.makeWorker(w);
-      const px = w.x * TILE;
-      const py = w.y * TILE;
-      const bob = w.moving ? Math.sin(this.t * 16 + w.id) * 0.06 : 0;
-      v.spr.setPosition(px, py).setRotation(w.facing).setScale((1 + bob) / HI);
-      const sel = view.selection?.type === 'worker' && view.selection.id === w.id;
-      v.ring.setPosition(px, py).setVisible(sel).setScale(0.9 + Math.sin(this.t * 6) * 0.06);
-      v.name.setPosition(px, py + 15).setVisible(sel || this.cameras.main.zoom > 2.2);
-      const carryKey = w.carry ? (w.carry.item === 'supplies' ? 'crate' : w.carry.product === 'herb' ? 'leafpile' : 'rocks')
-        : w.bag.herb + w.bag.crystal > 0 ? (w.bag.crystal ? 'bag_crystal' : 'bag_herb') : null;
-      if (carryKey) v.carry.setTexture(carryKey).setVisible(true).setPosition(px + Math.cos(w.facing) * 11, py + Math.sin(w.facing) * 11);
-      else v.carry.setVisible(false);
-      if (w.task && w.task.arrived && !w.path.length && w.task.action !== 'wander' && w.task.action !== 'leave') {
-        const frac = 1 - w.task.timer / Math.max(1, timeOf(w.task.action));
-        g.fillStyle(0x000000, 0.6).fillRoundedRect(px - 13, py - 22, 26, 6, 3);
-        g.fillStyle(0xffd54f, 1).fillRoundedRect(px - 12, py - 21, 24 * Phaser.Math.Clamp(frac, 0, 1), 4, 2);
+  private syncStash() {
+    if (BIZ[this.kind].stash <= 0) return;
+    const per = 4;
+    const want = PRODUCT_IDS.map((p) => Math.min(60, Math.ceil(state.stash[p] / per)));
+    const total = want.reduce((a, b) => a + b, 0);
+    if (total === this.bricks.length && this.bricks.every((b, i) => b.getData('i') === i)) {
+      // only rebuild on count change
+      return;
+    }
+    this.bricks.forEach((b) => b.destroy());
+    this.bricks = [];
+    let i = 0;
+    const ox = this.kind === 'warehouse' ? 9 * TILE : 8 * TILE;
+    const oy = this.kind === 'warehouse' ? 2 * TILE : 1 * TILE + 4;
+    PRODUCT_IDS.forEach((p, pi) => {
+      for (let k = 0; k < want[pi]; k++) {
+        const col = i % 6;
+        const row = Math.floor(i / 6);
+        const img = this.add.image(ox + col * 7, oy + row * 5, `f_brick_${p}`).setOrigin(0).setDepth(6);
+        img.setData('i', i);
+        this.bricks.push(img);
+        i++;
       }
-    }
-    for (const [id, v] of this.workers) {
-      if (alive.has(id)) continue;
-      v.spr.destroy();
-      v.carry.destroy();
-      v.ring.destroy();
-      v.name.destroy();
-      this.workers.delete(id);
-    }
-  }
-
-  private makeWorker(w: Worker): WorkerView {
-    const spr = this.add.image(0, 0, `worker_${w.role}`).setDepth(20).setInteractive({ useHandCursor: true });
-    spr.setData('workerId', w.id);
-    const v: WorkerView = {
-      spr,
-      carry: this.add.image(0, 0, 'crate').setScale(1 / HI).setDepth(21).setVisible(false),
-      ring: this.add.image(0, 0, 'ring').setDepth(19).setTint(0xffd54f).setVisible(false),
-      name: this.add.text(0, 0, w.name, { fontFamily: 'Inter, sans-serif', fontStyle: '700', fontSize: '10px', color: '#fff', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(31),
-    };
-    this.workers.set(w.id, v);
-    return v;
+    });
   }
 }
 
-function timeOf(a: keyof typeof ACTION_TIME) {
-  return ACTION_TIME[a] || 10;
-}
+// ---------------------------------------------------------------------------
 
-function drawRoom(ctx: CanvasRenderingContext2D, lotId: number, w: number, h: number) {
-  const lot = map.lots[lotId];
-  const r = mulberry32(lotId * 7919 + 3);
+function drawRoom(kind: BizKind, w: number, h: number, seed: number) {
   const W = w * TILE;
   const H = h * TILE;
-  ctx.translate(WALL, WALL);
-  const kind = lot.kind;
-  // floor
-  if (kind === 'apartment' || kind === 'house') {
-    const plank = kind === 'house' ? ['#b98b5e', '#a97c51', '#c39568'] : ['#8b6a4b', '#7d5e42', '#97755a'];
-    for (let y = 0; y < H; y += 12) {
-      let x = -((y / 12) % 3) * 22;
-      while (x < W) {
-        const len = 50 + r() * 40;
-        ctx.fillStyle = plank[Math.floor(r() * plank.length)];
-        ctx.fillRect(x, y, len, 12);
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
-        ctx.fillRect(x, y + 11, len, 1);
-        ctx.fillRect(x + len - 1, y, 1, 12);
-        x += len;
+  const p = new Pix(W + WALL * 2, H + WALL * 2 + 6);
+  const rng = mulberry32(seed * 977 + 13);
+  const ox = WALL;
+  const oy = WALL;
+  const { floor, color } = FLOORS[kind];
+  p.rect(ox, oy, W, H, color);
+  switch (floor) {
+    case 'concrete':
+      p.dither(ox, oy, W, H, shade(color, -0.1), 0.15, rng);
+      p.dither(ox, oy, W, H, shade(color, 0.08), 0.08, rng);
+      for (let i = 0; i < 8; i++) p.ellipse(ox + rng() * W, oy + rng() * H, 4 + rng() * 8, 2 + rng() * 5, 0x3a3a40, 90);
+      for (let x = ox + 32; x < ox + W; x += 64) for (let y = oy; y < oy + H; y += 6) p.rect(x, y, 2, 3, NEON.yellow, 160);
+      break;
+    case 'checker':
+      p.checker(ox, oy, W, H, 0x1a1a22, 8);
+      break;
+    case 'carpet':
+      for (let y = oy; y < oy + H; y += 8) for (let x = ox; x < ox + W; x += 8) {
+        const k = ((x - ox) / 8 + (y - oy) / 8) % 4;
+        if (k === 0) { p.set(x + 3, y + 3, shade(color, 0.35)); p.set(x + 4, y + 4, shade(color, 0.35)); }
+        if (k === 2) p.rect(x + 1, y + 6, 2, 1, kind === 'arcade' ? [NEON.pink, NEON.cyan, NEON.yellow][(x + y) % 3] : shade(color, -0.25));
       }
-    }
-    // rug
-    ctx.fillStyle = kind === 'house' ? '#7a3b3b' : '#3b5a7a';
-    rr(ctx, W * 0.15, H * 0.2, W * 0.3, H * 0.35, 8);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
-    rr(ctx, W * 0.15 + 5, H * 0.2 + 5, W * 0.3 - 10, H * 0.35 - 10, 6);
-    ctx.stroke();
-  } else {
-    ctx.fillStyle = kind === 'garage' ? '#6f7377' : '#787d82';
-    ctx.fillRect(0, 0, W, H);
-    for (let i = 0; i < (W * H) / 6; i++) {
-      ctx.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},${0.05 * r()})`;
-      ctx.fillRect(r() * W, r() * H, 2, 2);
-    }
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= W; x += TILE * 2) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y <= H; y += TILE * 2) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-    // oil stains
-    for (let i = 0; i < 4; i++) {
-      ctx.fillStyle = 'rgba(20,20,25,0.25)';
-      ctx.beginPath();
-      ctx.ellipse(r() * W, r() * H, 5 + r() * 9, 3 + r() * 6, r() * 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (kind !== 'garage') {
-      ctx.strokeStyle = 'rgba(255,214,79,0.55)';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(TILE * 0.5, TILE * 0.5, W - TILE, H - TILE);
-    }
+      break;
+    case 'dance':
+      for (let x = ox; x <= ox + W; x += 16) p.rect(x, oy, 1, H, 0x2a2038);
+      for (let y = oy; y <= oy + H; y += 16) p.rect(ox, y, W, 1, 0x2a2038);
+      break;
+    case 'tile':
+      for (let x = ox; x <= ox + W; x += 8) p.rect(x, oy, 1, H, 0xc0ccd4);
+      for (let y = oy; y <= oy + H; y += 8) p.rect(ox, y, W, 1, 0xc0ccd4);
+      break;
+    case 'wood':
+      for (let y = oy; y < oy + H; y += 5) {
+        p.rect(ox, y + 4, W, 1, shade(color, -0.3));
+        let x = ox - Math.floor(rng() * 30);
+        while (x < ox + W) { const len = 24 + rng() * 30; p.rect(x, y, 1, 4, shade(color, -0.25)); p.rect(x + 1, y, len - 1, 4, shade(color, (rng() - 0.5) * 0.12)); x += len; }
+      }
+      break;
+    case 'linoleum':
+      p.checker(ox, oy, W, H, shade(color, -0.12), 16);
+      for (let i = 0; i < 5; i++) p.ellipse(ox + rng() * W, oy + rng() * H, 3 + rng() * 6, 2 + rng() * 4, 0x6a5a3a, 70);
+      break;
   }
-  // ambient vignette
-  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.2, W / 2, H / 2, Math.max(W, H) * 0.75);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.35)');
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, W, H);
+  if (kind === 'marina') {
+    p.rect(ox + 10 * TILE, oy, W - 10 * TILE, H, 0x1fa8c4);
+    for (let i = 0; i < 40; i++) p.rect(ox + 10 * TILE + rng() * (W - 10 * TILE), oy + rng() * H, 4, 1, 0x8ff0e0);
+    p.rect(ox + 10 * TILE - 2, oy, 2, H, 0x5a3a1a);
+  }
+  // inner shadow along the top & left walls
+  p.rect(ox, oy, W, 4, INK, 90);
+  p.rect(ox, oy, 3, H, INK, 70);
 
   // walls
-  const wallCol = kind === 'apartment' || kind === 'house' ? '#d8cfc0' : '#5b6168';
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, 0, W, 10);
-  ctx.fillRect(0, 0, 8, H);
-  ctx.fillStyle = wallCol;
-  ctx.fillRect(-WALL, -WALL, W + WALL * 2, WALL);
-  ctx.fillRect(-WALL, H, W + WALL * 2, WALL);
-  ctx.fillRect(-WALL, -WALL, WALL, H + WALL * 2);
-  ctx.fillRect(W, -WALL, WALL, H + WALL * 2);
-  ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(-1, -1, W + 2, H + 2);
-  ctx.strokeRect(-WALL + 1, -WALL + 1, W + WALL * 2 - 2, H + WALL * 2 - 2);
-  // windows
-  ctx.fillStyle = '#8fd3ff';
-  for (let x = TILE * 1.5; x < W - TILE; x += TILE * 3) {
-    ctx.fillRect(x, -WALL + 5, TILE * 1.4, 7);
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillRect(x + 3, -WALL + 6, 6, 2);
-    ctx.fillStyle = '#8fd3ff';
+  const wc = 0x241a30;
+  p.rect(0, 0, W + WALL * 2, WALL, wc);
+  p.rect(0, H + WALL, W + WALL * 2, WALL, wc);
+  p.rect(0, 0, WALL, H + WALL * 2, wc);
+  p.rect(W + WALL, 0, WALL, H + WALL * 2, wc);
+  p.frame(WALL - 1, WALL - 1, W + 2, H + 2, 0x4a3a5a);
+  p.frame(0, 0, W + WALL * 2, H + WALL * 2, INK);
+  // windows with blinds
+  for (let x = ox + 24; x < ox + W - 24; x += 64) {
+    p.rect(x, 2, 26, 4, 0x6fd1f8);
+    for (let k = 0; k < 26; k += 3) p.rect(x + k, 2, 1, 4, 0xe8f4ff);
   }
   // door
-  const door = doorCell(lotId);
-  ctx.fillStyle = kind === 'garage' ? '#bfc3c7' : '#6b4a2b';
-  ctx.fillRect(door.x * TILE + 2, H, TILE - 4, WALL);
-  ctx.fillStyle = 'rgba(255,214,79,0.25)';
-  ctx.fillRect(door.x * TILE, H - TILE, TILE, TILE);
-  ctx.font = 'bold 9px Inter, sans-serif';
-  ctx.fillStyle = '#fff';
-  ctx.textAlign = 'center';
-  ctx.fillText('EXIT', door.x * TILE + TILE / 2, H + 12);
+  const dx = ox + Math.floor(w / 2) * TILE;
+  p.rect(dx, H + WALL, TILE, WALL, shade(color, -0.2));
+  p.rect(dx + 2, H + WALL - 4, TILE - 4, 3, 0x8a2a4a);
+  p.text('EXIT', dx, H + WALL * 2 - 1, NEON.yellow);
+  return p;
 }
