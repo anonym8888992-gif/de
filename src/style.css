@@ -316,3 +316,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ord { padding: 5px 0; }
 .star { color: #4a3458 !important; }
 .star.on { color: var(--red) !important; }
+
+/* story mode */
+#story { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(10, 4, 20, .82); }
+#story.hidden { display: none; }
+#story .scard { max-width: 560px; padding: 28px 32px; background: #1a0f26; border: 3px solid var(--pink); box-shadow: 6px 6px 0 #000; text-align: center; }
+#story .snum { font-family: var(--px); font-size: 40px; color: var(--pink); text-shadow: 3px 3px 0 #000; }
+#story .ssin { font-family: var(--px); font-size: 11px; letter-spacing: 4px; color: var(--cyan, #4ff); margin: 6px 0; }
+#story h1 { margin: 4px 0 6px; }
+#story .sfrom { font-size: 11px; opacity: .7; margin-bottom: 12px; }
+#story p { text-align: left; line-height: 1.5; margin: 8px 0; }
+#story .sunlock { margin: 14px 0; font-family: var(--px); font-size: 10px; }
+#story .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+.chhead { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.chhead .chnum { font-family: var(--px); font-size: 18px; color: var(--pink); }
+.chhead .ct { margin: 0; font-size: 12px; }
+.chhead .btn { margin-left: auto; }
+.goals { list-style: none; margin: 0; padding: 0; }
+.goals li { display: flex; gap: 6px; align-items: flex-start; padding: 4px 0; }
+.goals li i { width: 12px; height: 12px; border: 2px solid currentColor; font-style: normal; font-size: 9px; line-height: 10px; text-align: center; flex: none; }
+.goals li.d { opacity: .5; text-decoration: line-through; }
+.goals small { display: block; opacity: .75; }
+.goals .gp, .gbar span { font-size: 10px; color: var(--gold, #fc4); }
+.gbar { position: relative; height: 12px; background: #000; margin: 6px 0; }
+.gbar div { height: 100%; background: var(--pink); }
+.gbar span { position: absolute; inset: 0; text-align: center; line-height: 12px; }
+.nextch { margin-top: 8px; padding: 6px; border: 1px dashed var(--pink); font-size: 11px; }
+.chain.locked { opacity: .45; }
+.chip.lock { opacity: .5; cursor: not-allowed; }
+.bt.lockd { opacity: .5; cursor: default; }

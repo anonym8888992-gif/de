@@ -9,7 +9,7 @@ import { generateSprites } from './gfx/sprites';
 import { CityScene } from './scenes/CityScene';
 import { InteriorScene } from './scenes/InteriorScene';
 import { resetClock, update } from './sim/sim';
-import { checkObjectives } from './sim/tutorial';
+import { checkObjectives } from './sim/story';
 import { map, state, view } from './state';
 import { initUI } from './ui/ui';
 

@@ -3,6 +3,7 @@ import { bus, type ToastKind } from '../bus';
 import {
   BIZ, CHAINS, DISTRICTS, GANGS, ITEMS, LAUNDER_FEE, MID_IDS, PRODUCT_IDS, STATIONS, STATION_IDS, SUPPLY_IDS, TILE,
   type BizKind, type ItemId, type StationId, type SupplyId,
+  recipeProduct,
 } from '../config';
 import { answer, introCalls, removeMsg, unread } from '../sim/phone';
 import { STATIONS_PER_WORKER, canProduce, findStation, removeStation, setRecipe, statusText as stationStatus } from '../sim/production';
@@ -11,7 +12,10 @@ import {
   guardsOn, hire, importShipment, odds, orderCost, orderFromSal, recall, sellBiz, sendPost, sendToWork, startContract, startExtort, startTakeover,
   type Order,
 } from '../sim/sim';
-import { STEPS, TUTORIAL_LEN, currentStep, skipTutorial } from '../sim/tutorial';
+import {
+  CHAPTERS, TUTORIAL_LEN, chapter, chapterComplete, chapterFor, currentGoal, finished, goalDone, productUnlocked, recipeUnlocked,
+  showChapterIfNeeded, skipTutorial, stationUnlocked, supplyUnlocked, type Goal,
+} from '../sim/story';
 import {
   bizActive, bizFx, clock, goonName, hasSave, loadGame, map, money, newGame, playerBlocks, saveGame, seedNewGame,
   setState, stars, stashCap, stashTotal, state, view, workersAt, type Goon,
@@ -99,6 +103,8 @@ export function initUI() {
   bus.on('hover', tooltip);
   bus.on('upgradeFocus', (id: string) => { ui.upgradeFocus = id; render(); });
   bus.on('gameover', () => { ui.over = true; view.speed = 0; render(); });
+  bus.on('story', (i: number) => showStory(i));
+  bus.on('victory', showVictory);
   setInterval(render, 300);
   renderTitle();
 }
@@ -150,7 +156,7 @@ function renderTop() {
   const tot = stashTotal();
   const unr = unread();
   set('topbar', `
-    <div class="logo-sm">Neon Kingpin</div>
+    <div class="logo-sm">Seven Sins</div>
     <div class="st"><small>DIRTY</small><b class="dirty">${money(state.dirty)}</b></div>
     <div class="st"><small>CLEAN</small><b class="clean">${money(state.clean)}</b></div>
     <div class="st prod" data-a="modal" data-v="sal" data-tab="stash"><small>STASH ${tot}/${cap}</small><b>${PRODUCT_IDS.filter((p) => state.stash[p] > 0).map((p) => `<span class="pd" style="--ic:${ITEMS[p].css}" title="${ITEMS[p].name}">${ITEMS[p].short} ${state.stash[p]}</span>`).join('') || '<span class="dim">NO PRODUCT</span>'}</b></div>
@@ -174,60 +180,111 @@ function renderTop() {
 let tutTarget = '';
 
 function renderObjective() {
-  const s = currentStep();
-  if (!s) return set('objective', `<div class="obj"><h4>Kingpin</h4><p>Miami is yours. Enjoy the view.</p></div>`);
-  const idx = STEPS.indexOf(s);
-  const tut = idx < TUTORIAL_LEN;
-  const head = tut ? `TUTORIAL ${idx + 1}/${TUTORIAL_LEN}` : `GOAL ${idx - TUTORIAL_LEN + 1}/${STEPS.length - TUTORIAL_LEN}`;
-  set('objective', `<div class="obj ${tut ? 'tut' : ''}">
-    <h4>${head}</h4>
-    <p class="ot">${s.title}</p>
-    <p class="od">${s.text}</p>
-    <div class="ob">${s.action ? `<button class="btn gold" data-a="tutAct">${s.action}</button>` : ''}${tut ? '<button class="btn tiny" data-a="tutSkip">SKIP TUTORIAL</button>' : ''}</div>
-    ${tut ? `<div class="opips">${STEPS.slice(0, TUTORIAL_LEN).map((_, i) => `<i class="${i < idx ? 'd' : i === idx ? 'c' : ''}"></i>`).join('')}</div>` : ''}
-  </div>`);
-  // pulse the element the current step is about
+  const ch = chapter();
+  const idx = CHAPTERS.indexOf(ch);
+  if (finished()) {
+    return set('objective', `<div class="obj done"><h4>THE END</h4><p class="ot">Miami is yours.</p><p class="od">Seven sins, one city. Keep playing as long as you like.</p></div>`);
+  }
+  const head = `<div class="chhead"><span class="chnum">${ch.num}</span><div><h4>CHAPTER ${ch.num} · ${ch.sin}</h4><p class="ct">${esc(ch.title)}</p></div><button class="btn tiny" data-a="story" title="Read the story again">STORY</button></div>`;
+  let body = '';
+  let action = '';
+  if (ch.guided) {
+    const g = currentGoal();
+    if (g) {
+      const n = ch.goals.indexOf(g);
+      body = `<p class="ot">${g.title}</p><p class="od">${g.text}</p>${progressBar(g)}
+        <div class="ob">${g.action ? `<button class="btn gold" data-a="tutAct">${g.action}</button>` : ''}${n < TUTORIAL_LEN - 1 ? '<button class="btn tiny" data-a="tutSkip">SKIP TUTORIAL</button>' : ''}</div>
+        <div class="opips">${ch.goals.map((_, i) => `<i class="${i < n ? 'd' : i === n ? 'c' : ''}"></i>`).join('')}</div>`;
+      action = g.target ?? '';
+    }
+  } else {
+    body = `<ul class="goals">${ch.goals.map((g) => {
+      const done = goalDone(g);
+      const pr = !done && g.progress ? g.progress() : null;
+      return `<li class="${done ? 'd' : ''}"><i>${done ? 'X' : ''}</i><div><b>${g.title}</b>${!done ? `<small>${g.text}</small>` : ''}${pr ? `<span class="gp">${pr[0].toLocaleString('en-US')} / ${pr[1].toLocaleString('en-US')}</span>` : ''}</div>${!done && g.action ? `<button class="btn tiny gold" data-a="goalAct" data-v="${g.id}">GO</button>` : ''}</li>`;
+    }).join('')}</ul>`;
+  }
+  if (chapterComplete() && idx < CHAPTERS.length - 1) {
+    const next = CHAPTERS[idx + 1];
+    body += `<div class="nextch">CHAPTER ${next.num} ARRIVES ON DAY ${next.minDay}.<br><span>Expand, launder, stock up.</span></div>`;
+  }
+  set('objective', `<div class="obj ${ch.guided ? 'tut' : ''}">${head}${body}</div>`);
   document.querySelectorAll('.tut-glow').forEach((el) => el.classList.remove('tut-glow'));
-  tutTarget = tut || s.target ? s.target ?? '' : '';
+  tutTarget = action;
   if (tutTarget) document.querySelectorAll(tutTarget).forEach((el) => el.classList.add('tut-glow'));
 }
 
-/** SHOW ME: take the player to wherever the current step happens. */
-function tutAction() {
-  const s = currentStep();
-  if (!s) return;
+function progressBar(g: Goal) {
+  if (!g.progress) return '';
+  const [a, b] = g.progress();
+  return `<div class="gbar"><div style="width:${(a / b) * 100}%"></div><span>${a.toLocaleString('en-US')} / ${b.toLocaleString('en-US')}</span></div>`;
+}
+
+/** SHOW ME: take the player to wherever a goal happens. */
+function tutAction(goalId = currentGoal()?.id) {
+  if (!goalId) return;
   const hq = map.starterLot;
   const goHQ = () => { if (view.scene !== 'interior' || view.lot !== hq) bus.emit('enter', hq); };
   const place = (t: StationId) => { goHQ(); view.placing = t; bus.emit('placing'); };
   const has = (t: StationId) => Object.values(state.biz).some((b) => b.stations.some((x) => x.type === t));
-  switch (s.id) {
+  const toBlock = (id: number | undefined) => {
+    if (id === undefined) return;
+    if (view.scene === 'interior') bus.emit('exit');
+    const b = map.blocks[id];
+    view.selection = { type: 'block', id };
+    bus.emit('focus', { x: (b.x + 5) * TILE, y: (b.y + 5) * TILE });
+    bus.emit('select');
+  };
+  switch (goalId) {
     case 'enter': goHQ(); break;
     case 'tent': place('tent'); break;
     case 'dry': place(has('rack') ? 'trim' : 'rack'); break;
     case 'worker': goHQ(); window.setTimeout(() => { ui.picker = { kind: 'work', target: hq, max: 2, selected: [] }; render(); }, 30); break;
     case 'seeds': ui.salTab = 'sal'; ui.order = { seeds: 5, soil: 5 }; ui.modal = 'sal'; break;
     case 'harvest': view.speed = 4; break;
-    case 'corner': {
-      if (view.scene === 'interior') bus.emit('exit');
-      const b = map.lots[hq].block;
-      view.selection = { type: 'block', id: b };
-      bus.emit('focus', { x: (map.blocks[b].x + 5) * TILE, y: (map.blocks[b].y + 5) * TILE });
-      bus.emit('select');
-      break;
-    }
-    case 'shine': place(has('barrel') ? 'still' : 'barrel'); break;
-    case 'take': {
-      if (view.scene === 'interior') bus.emit('exit');
-      const target = map.blocks.find((b) => state.turf[b.id].owner !== 0 && adjacentToPlayer(b.id));
-      if (!target) break;
-      view.selection = { type: 'block', id: target.id };
-      bus.emit('focus', { x: (target.x + 5) * TILE, y: (target.y + 5) * TILE });
-      bus.emit('select');
-      break;
-    }
-    case 'meth': place(has('reactor') ? 'trays' : 'reactor'); break;
+    case 'corner': toBlock(map.lots[hq].block); break;
+    case 'still': place(has('barrel') ? 'still' : 'barrel'); break;
+    case 'take1': toBlock(map.blocks.find((b) => state.turf[b.id].owner !== 0 && adjacentToPlayer(b.id))?.id); break;
+    case 'lab': place(has('reactor') ? 'trays' : 'reactor'); break;
+    case 'press': place('press'); break;
+    case 'blotter': place('blotter'); break;
+    case 'boil': place('boiler'); break;
   }
   render();
+}
+
+// ---------------------------------------------------------------------------
+// story card & victory
+
+function showStory(idx: number) {
+  const ch = CHAPTERS[idx];
+  const prev = view.speed;
+  view.speed = 0;
+  sfx('win');
+  const el = $('story');
+  el.innerHTML = `<div class="bars"></div><div class="scard">
+    <div class="snum">${ch.num}</div>
+    <div class="ssin">${ch.sin}</div>
+    <h1>${esc(ch.title)}</h1>
+    <div class="sfrom">${esc(ch.from)}</div>
+    ${ch.story.map((p) => `<p>${esc(p)}</p>`).join('')}
+    <div class="sunlock">UNLOCKED: <span class="pd" style="--ic:${ITEMS[ch.product].css}">${ITEMS[ch.product].name.toUpperCase()}</span></div>
+    <button class="btn gold big" data-a="storyClose" data-v="${prev || 1}">CONTINUE</button>
+  </div>`;
+  el.classList.remove('hidden');
+}
+
+function showVictory() {
+  view.speed = 0;
+  sfx('win');
+  const c = clock(state.minutes);
+  $('story').innerHTML = `<div class="bars"></div><div class="scard win">
+    <div class="ssin">EPILOGUE</div><h1>Kingpin</h1>
+    <p>Seven sins, one city. The gangs are gone, the cops are paid and Uncle Vic gets out next spring. He is going to have so many questions.</p>
+    <div class="grid"><div><small>DAYS</small><b>${c.day}</b></div><div><small>STREET SALES</small><b>${money(state.stats.earned)}</b></div><div><small>BLOCKS TAKEN</small><b>${state.stats.taken}</b></div>
+    <div><small>ARRESTS</small><b>${state.stats.arrests}</b></div><div><small>FUNERALS</small><b>${state.stats.deaths}</b></div><div><small>LAUNDERED</small><b>${money(state.stats.laundered)}</b></div></div>
+    <button class="btn gold big" data-a="storyClose" data-v="1">KEEP PLAYING</button></div>`;
+  $('story').classList.remove('hidden');
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +505,7 @@ function stationPanel(lotId: number, stId: number) {
   h += `<div class="kv"><span>STATUS</span><b class="${s.status === 'running' ? 'g' : s.status === 'idle' ? '' : 'r'}">${stationStatus(s)}</b></div>`;
   if (s.loaded) h += bar(s.progress, 'var(--green)');
   if (d.recipes.length > 1) {
-    h += `<div class="lbl">RECIPE</div><div class="chips">${d.recipes.map((rc, i) => `<button class="chip ${i === s.recipe ? 'on' : ''}" data-a="recipe" data-id="${s.id}" data-v="${i}">${rc.name.toUpperCase()}</button>`).join('')}</div>`;
+    h += `<div class="lbl">RECIPE</div><div class="chips">${d.recipes.map((rc, i) => recipeUnlocked(s.type, i) ? `<button class="chip ${i === s.recipe ? 'on' : ''}" data-a="recipe" data-id="${s.id}" data-v="${i}">${rc.name.toUpperCase()}</button>` : `<span class="chip lock">LOCKED · CH ${chapterFor(recipeProduct(s.type, i)).num}</span>`).join('')}</div>`;
   }
   h += `<div class="lbl">MAKES (${Math.round(r.time / 60 * 10) / 10}H PER BATCH)</div>${recipeLine(r)}`;
   const missing = (Object.entries(r.in) as [ItemId, number][]).filter(([k, n]) => state.stash[k] < n);
@@ -505,7 +562,7 @@ function salModal() {
   h += `<div class="tabs">${tab('sal', 'SAL (VAN)')}${tab('marina', ownsMarina ? 'MARINA (BOAT)' : 'MARINA (LOCKED)', ownsMarina)}${tab('stash', `STASH ${stashTotal()}/${stashCap()}`)}</div>`;
   if (ui.salTab === 'stash') return h + stashTab();
   const marina = ui.salTab === 'marina' && ownsMarina;
-  const list = marina ? (['cocaleaf', 'opium'] as SupplyId[]) : SUPPLY_IDS;
+  const list = (marina ? (['cocaleaf', 'opium'] as SupplyId[]) : SUPPLY_IDS).filter(supplyUnlocked);
   const free = stashCap() - stashTotal();
   const order: Order = {};
   for (const s of list) if (ui.order[s]) order[s] = ui.order[s];
@@ -548,6 +605,11 @@ function recipesModal() {
   let h = `<h1 class="mt">Recipes</h1><p class="sub">Every product, start to finish. Build the stations in a stash house, warehouse or motel, assign workers, keep supplies coming.</p>`;
   for (const c of CHAINS) {
     const p = ITEMS[c.product];
+    if (!productUnlocked(c.product)) {
+      const ch = chapterFor(c.product);
+      h += `<div class="chain locked"><div class="ch"><b>??? · CHAPTER ${ch.num}: ${ch.sin}</b><small>UNLOCKS FROM DAY ${ch.minDay}</small></div></div>`;
+      continue;
+    }
     h += `<div class="chain" style="--ic:${p.css}"><div class="ch"><b>${p.name.toUpperCase()}</b><small>SELLS ~${money(p.sell!)} · HEAT ${'!'.repeat(Math.max(1, Math.round(p.heat! * 5)))}</small></div>`;
     for (const sid of c.steps) {
       const d = STATIONS[sid];
@@ -637,11 +699,13 @@ function renderBottom() {
   let h = `<button class="btn" data-a="exit">&lt; STREET</button>`;
   if (canProduce(view.lot!)) {
     const cash = state.dirty + state.clean;
-    h += `<div class="buildbar">${STATION_IDS.map((t) => {
+    const open = STATION_IDS.filter(stationUnlocked);
+    const locked = STATION_IDS.length - open.length;
+    h += `<div class="buildbar">${open.map((t) => {
       const d = STATIONS[t];
       return `<button class="bt ${view.placing === t ? 'on' : ''}" data-a="place" data-v="${t}" ${cash >= d.cost ? '' : 'disabled'} title="${esc(d.desc)}">
         <span class="bi" style="--ic:${ITEMS[CHAINS.find((c) => c.steps.includes(t))!.product].css}">${STATION_ICON[t]}</span><b>${d.name.toUpperCase()}</b><small>${money(d.cost)}</small></button>`;
-    }).join('')}</div>`;
+    }).join('')}${locked ? `<div class="bt lockd" title="The story unlocks more stations"><span class="bi">?</span><b>${locked} MORE</b><small>STORY</small></div>` : ''}</div>`;
     if (view.placing) h += `<div class="placing">PLACING ${STATIONS[view.placing].name.toUpperCase()}: CLICK THE FLOOR · RIGHT-CLICK / ESC TO STOP</div>`;
   } else h += `<span>ESC TO LEAVE</span>`;
   set('bottom', h);
@@ -757,6 +821,9 @@ function onClick(e: MouseEvent) {
     case 'closeReport': $('report').classList.add('hidden'); break;
     case 'tutAct': tutAction(); return;
     case 'tutSkip': skipTutorial(); break;
+    case 'goalAct': tutAction(v); return;
+    case 'story': showStory(state.chapter); return;
+    case 'storyClose': $('story').classList.add('hidden'); view.speed = Number(v) || 1; break;
     case 'place': view.placing = view.placing === v ? null : (v as StationId); ui.picker = null; bus.emit('placing'); break;
     case 'selStation': view.selection = { type: 'station', id }; ui.picker = null; break;
     case 'recipe': if (view.lot !== null) setRecipe(view.lot, id, Number(v)); break;
@@ -849,8 +916,8 @@ function renderTitle() {
   $('title').innerHTML = `
     <div class="waves"></div>
     <div class="title-card">
-      <div class="logo"><span class="l1">Neon</span><span class="l2">Kingpin</span></div>
-      <div class="sub2">MIAMI 1986</div>
+      <div class="logo"><span class="l1">Seven</span><span class="l2">Sins</span></div>
+      <div class="sub2">MIAMI · 1986 · A STORY IN SEVEN CHAPTERS</div>
       <div class="menu">
         ${save ? '<button data-a="continue">CONTINUE</button>' : ''}
         <button data-a="new">NEW GAME</button>
@@ -873,6 +940,8 @@ function startGame(cont: boolean) {
   $('title').classList.add('gone');
   document.body.classList.add('playing');
   bus.emit('started');
+  render();
+  showChapterIfNeeded();
   render();
 }
 

@@ -2,6 +2,7 @@ import { bus, toast } from '../bus';
 import { BIZ, DISTRICTS, ITEMS, STATIONS, type BizKind, type ItemId, type ProductId, type StationId } from '../config';
 import { bizActive, map, nextId, stashCap, stashTotal, state, workersAt, type Station } from '../state';
 import { spend } from './sim';
+import { recipeUnlocked, stationUnlocked } from './story';
 
 /** Each worker keeps this many stations running. */
 export const STATIONS_PER_WORKER = 2;
@@ -71,13 +72,14 @@ export function tickProduction(dt: number) {
 
 export function placeStation(lotId: number, type: StationId, x: number, y: number) {
   const def = STATIONS[type];
-  if (!canProduce(lotId)) return false;
+  if (!canProduce(lotId) || !stationUnlocked(type)) return false;
   if (state.dirty + state.clean < def.cost) {
     toast(`A ${def.name} costs ${def.cost}. Not enough cash.`, 'warn');
     return false;
   }
   spend(def.cost);
-  const st: Station = { id: nextId(), type, x, y, recipe: 0, progress: 0, loaded: false, status: 'idle' };
+  const recipe = Math.max(0, def.recipes.findIndex((_, i) => recipeUnlocked(type, i)));
+  const st: Station = { id: nextId(), type, x, y, recipe, progress: 0, loaded: false, status: 'idle' };
   state.biz[lotId].stations.push(st);
   bus.emit('changed');
   return true;
@@ -96,6 +98,10 @@ export function removeStation(lotId: number, stationId: number) {
 export function setRecipe(lotId: number, stationId: number, idx: number) {
   const st = state.biz[lotId]?.stations.find((s) => s.id === stationId);
   if (!st || st.recipe === idx) return;
+  if (!recipeUnlocked(st.type, idx)) {
+    toast('Locked. The story unlocks this later.', 'warn');
+    return;
+  }
   if (st.loaded) {
     toast('Wait for the current batch to finish first.', 'warn');
     return;

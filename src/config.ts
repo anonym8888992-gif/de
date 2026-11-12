@@ -387,3 +387,10 @@ export const QUIRKS = [
   'Moonlights as a roller-disco instructor.',
   'Thinks the Cold War is a weather thing.',
 ];
+
+/** Which product a station recipe belongs to (used for story unlocks). */
+export function recipeProduct(station: StationId, idx: number): ProductId {
+  if (station === 'reactor') return (['meth', 'mdma', 'lsd'] as ProductId[])[idx];
+  if (station === 'refinery') return (['cocaine', 'heroin'] as ProductId[])[idx];
+  return CHAINS.find((c) => c.steps.includes(station))!.product;
+}
