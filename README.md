@@ -1,33 +1,31 @@
-# NEON KINGPIN · Miami 1986
+# SEVEN SINS · Miami 1986
 
-A satirical top-down crime management game for the browser. Pixel art in a Hotline Miami / GTA 2 vein, with a CRT filter and neon at night.
+A satirical, top-down pixel-art crime management game for the browser (Phaser 3 + TypeScript + Vite).
+You inherit Uncle Vic's stash house in 1986 Miami. Across seven story chapters (one sin, one product each)
+you build production chains, staff them with your crew, sell on street corners, take turf from rival gangs,
+launder money and keep the Vice Squad off your back.
 
-You inherit Uncle Vic's stash house in Palmetto Flats. Build production chains for seven products (weed, moonshine, MDMA, meth, LSD, cocaine, heroin), staff them with your crew, sell on street corners, take blocks from three rival gangs, launder the money and keep the Vice Squad off your back. Production steps are deliberately game-abstract.
+Production is deliberately **game-abstract**: fictional supplies ("Lab Chemicals", "Mash Kit"), timers and
+station names only. Never add real chemistry, precursors or procedures.
 
-## Run
+## Quick start
 
-```sh
+```bash
 pnpm install
-pnpm dev      # http://localhost:5173
-pnpm build    # typecheck + production build into dist/
+pnpm dev        # http://localhost:5173
+pnpm build      # typecheck + production build into dist/
 ```
 
-## How it plays
+## Docs (read these before changing anything)
 
-- **Turf:** the city is 30 blocks. Los Flamingos, The Barracudas and Tiger Mob hold the rest. Send crew to take blocks next to yours. Rivals counter-attack, so post guards.
-- **Corners:** post dealers on your blocks. They sell from your stash for dirty cash.
-- **Production:** place stations inside a stash house, warehouse or motel (Grow Tent > Drying Rack > Trim Table, Lab Bench > Cooling Trays, ...). One worker keeps two stations running. Supplies come from Sal or, for coca leaves and opium, cheaply by boat through the Marina. See RECIPES in-game.
-- **Businesses:** buy them with clean money or shake them down for protection. Each type has a perk, and owned ones have upgrades you place inside.
-- **Heat:** wanted stars lead to corner busts and DEA raids. Pay off Captain Morales or own a diner.
-- **Phone:** the answering machine brings jobs, deals, threats and truce offers.
+| File | What it covers |
+|---|---|
+| [docs/HANDOFF.md](docs/HANDOFF.md) | **Start here if you are an AI or new dev.** Current status, open bugs, next tasks, rules. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Every source file and what it does, data flow, save format. |
+| [docs/GAMEPLAY.md](docs/GAMEPLAY.md) | Game design: story chapters, production chains, economy, turf, heat, crew. |
+| [CHANGELOG.md](CHANGELOG.md) | Full history of what was built. |
 
 ## Controls
 
-Drag / WASD to pan, wheel or Q/E to zoom, click blocks and businesses, double-click a business you own to go inside. Space pauses, 1/2/3 set speed, P phone, C crew, Tab city overview, Esc back.
-
-## Code layout
-
-- `src/sim/` – simulation (city generation, ops, fights, economy, rival AI, phone), independent of rendering
-- `src/gfx/` – all art is drawn procedurally pixel by pixel (no asset files), plus the CRT post-processing shader
-- `src/scenes/` – Phaser scenes: city and building interiors
-- `src/ui/` – HTML/CSS overlay
+Mouse: click blocks, buildings and people · drag or WASD to pan · wheel to zoom · double-click a building to go inside.
+Keys: `Space` pause · `1` `2` `3` speed · `Esc` leave interior / cancel placing.

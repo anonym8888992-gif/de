@@ -3,6 +3,7 @@ import { DAY, GANGS, ITEMS, type SupplyId } from '../config';
 import { goonFrom, makeCandidate, map, money, nextId, playerBlocks, stars, state, type PhoneMsg, type PhoneOption } from '../state';
 import { pick, randInt } from './rng';
 import { bribe, orderFromSal } from './sim';
+import { supplyUnlocked } from './story';
 
 export function pushMsg(from: string, text: string, options: PhoneOption[] = [], ttlHours = 10) {
   const m: PhoneMsg = { id: nextId(), from, text, options, at: state.minutes, expires: state.minutes + ttlHours * 60, read: false };
@@ -17,7 +18,7 @@ export function introCalls() {
     'Kid, it\'s Vic. They got me on a parking ticket, can you believe it? Two years. The place in Palmetto Flats is yours now. Sonny and Rico are good boys. My grow setup got seized, so start fresh: tents in the back room, Sal for supplies, the boys on the corner. And DON\'T let the Flamingos walk all over you.',
     [], 9999);
   pushMsg('SAL',
-    'Sal here. Vic\'s nephew, huh? You need seeds, chemicals, whatever, I got it. Hit SUPPLIES whenever. And kid, the Vice Squad drives around more when you get loud. Keep it quiet.',
+    'Sal here. Vic\'s nephew, huh? Seeds, soil, whatever you need, I got it. Hit SUPPLIES whenever. And kid, the Vice Squad drives around more when you get loud. Keep it quiet.',
     [], 9999);
 }
 
@@ -60,7 +61,8 @@ function generate() {
     return;
   }
   if (roll < 0.75) {
-    const p = pick(['chems', 'chems', 'cocaleaf', 'opium', 'culture', 'mashkit'] as SupplyId[]);
+    const pool = (['seeds', 'soil', 'mashkit', 'chems', 'chems', 'binder', 'culture', 'paper', 'cocaleaf', 'opium'] as SupplyId[]).filter(supplyUnlocked);
+    const p = pick(pool);
     const qty = ITEMS[p].step! * randInt(3, 8);
     const price = Math.max(1, Math.round(ITEMS[p].price! * (0.5 + Math.random() * 0.15)));
     pushMsg('SAL',
