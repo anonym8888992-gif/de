@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 
+/** Hotline Miami style post: pulsing RGB split, cycling colour wash, punchy saturation, scanlines. */
 const FRAG = `
-#define SHADER_NAME CRT_FS
+#define SHADER_NAME HM_FS
 precision mediump float;
 uniform sampler2D uMainSampler;
 uniform vec2 uResolution;
@@ -9,27 +10,34 @@ uniform float uTime;
 uniform float uStrength;
 varying vec2 outTexCoord;
 
+vec3 hue(float h) {
+  return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+
 void main() {
   vec2 uv = outTexCoord;
   vec2 c = uv - 0.5;
   float d = dot(c, c);
-  // chromatic aberration, stronger toward the edges
-  vec2 off = c * (0.004 + d * 0.012) * uStrength;
+  float beat = pow(0.5 + 0.5 * sin(uTime * 2.2), 4.0);
+  vec2 off = (vec2(0.0007 + 0.0016 * beat, 0.0) + c * d * 0.008) * uStrength;
   float r = texture2D(uMainSampler, uv + off).r;
   float g = texture2D(uMainSampler, uv).g;
   float b = texture2D(uMainSampler, uv - off).b;
   vec3 col = vec3(r, g, b);
-  // scanlines
-  float scan = 0.9 + 0.1 * sin(uv.y * uResolution.y * 3.14159);
+
+  // slow diagonal colour wash (screen blend), the signature HM tint
+  vec3 wash = hue(fract(uTime * 0.025 + uv.y * 0.18 + uv.x * 0.08));
+  vec3 screen = 1.0 - (1.0 - col) * (1.0 - wash * 0.45);
+  col = mix(col, screen, 0.3 * uStrength);
+
+  float l = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(l), col, 1.0 + 0.3 * uStrength);
+  col = (col - 0.5) * (1.0 + 0.12 * uStrength) + 0.5;
+
+  float scan = 0.92 + 0.08 * sin(uv.y * uResolution.y * 3.14159);
   col *= mix(1.0, scan, uStrength);
-  // slow rolling band
-  float band = smoothstep(0.0, 0.08, abs(fract(uv.y - uTime * 0.05) - 0.5));
-  col *= mix(1.0, 0.97 + 0.03 * band, uStrength);
-  // 80s grade: lift shadows to purple, push highlights warm
-  col = mix(col, col * vec3(1.06, 0.96, 1.08) + vec3(0.025, 0.0, 0.04), 0.6 * uStrength);
-  // vignette
-  col *= 1.0 - d * 0.9 * uStrength;
-  gl_FragColor = vec4(col, 1.0);
+  col *= 1.0 - d * 1.2 * uStrength;
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `;
 

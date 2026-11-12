@@ -4,6 +4,7 @@ import { GANGS, NEON, TILE } from '../config';
 import { BX, BY, WORLD_H, WORLD_W, node, type Pt } from '../sim/cityMap';
 import { map, state, stars, view, type Op } from '../state';
 import type { Sign } from '../gfx/cityArt';
+import { Shadows } from '../gfx/shadows';
 
 const S = 10 * TILE;
 
@@ -43,7 +44,7 @@ interface OpView {
 }
 
 const KEYS: [number, number][] = [
-  [0, 0x4a3c8a], [4.5, 0x4a3c8a], [6, 0xffa0c0], [7.5, 0xffffff], [16.5, 0xffffff], [18, 0xffb890], [19.3, 0xff8ab0], [20.5, 0x6a52b8], [22, 0x4a3c8a], [24, 0x4a3c8a],
+  [0, 0x8676d8], [4.5, 0x8676d8], [6, 0xffa0c0], [7.5, 0xffffff], [16.5, 0xffffff], [18, 0xffb890], [19.3, 0xff8ab0], [20.5, 0x9a86e0], [22, 0x8676d8], [24, 0x8676d8],
 ];
 
 export function skyTint(minutes: number) {
@@ -88,6 +89,7 @@ export class CityScene extends Phaser.Scene {
   private drag = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private t = 0;
+  private shadows!: Shadows;
   private lastClick = { t: 0, lot: -1 };
   private offs: (() => void)[] = [];
   private turfKey = '';
@@ -98,6 +100,7 @@ export class CityScene extends Phaser.Scene {
 
   create(data: { signs: Sign[] }) {
     this.add.image(0, 0, 'city').setOrigin(0).setDepth(0);
+    this.shadows = new Shadows(this, 4);
     this.turfG = this.add.graphics().setDepth(2);
     this.selG = this.add.graphics().setDepth(30);
 
@@ -113,7 +116,7 @@ export class CityScene extends Phaser.Scene {
 
     for (const pm of map.palms) {
       const img = this.add.image(pm.x, pm.y, `palm${Math.floor(pm.s * 10) % 3}`).setDepth(20).setScale(pm.s);
-      this.add.image(pm.x + 4, pm.y + 4, `palm${Math.floor(pm.s * 10) % 3}`).setDepth(1).setScale(pm.s).setTint(0x000000).setAlpha(0.3);
+      this.add.image(pm.x + 6, pm.y + 6, `palm${Math.floor(pm.s * 10) % 3}`).setDepth(4).setScale(pm.s).setTintFill(0x140a1e).setAlpha(0.5);
       this.palms.push({ img, seed: Math.random() * 10 });
     }
 
@@ -125,8 +128,8 @@ export class CityScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(-120, -120, WORLD_W + 240, WORLD_H + 240);
-    cam.setBackgroundColor('#0b0614');
-    cam.setZoom(2);
+    cam.setBackgroundColor('#2a0a3a');
+    cam.setZoom(3);
     cam.centerOn((starter.x + 2) * TILE + 60, (starter.y) * TILE - 40);
     cam.setRoundPixels(true);
 
@@ -206,7 +209,7 @@ export class CityScene extends Phaser.Scene {
 
   zoomStep(dir: number, sx?: number, sy?: number) {
     const cam = this.cameras.main;
-    const nz = Phaser.Math.Clamp(Math.round(cam.zoom) + dir, 1, 4);
+    const nz = Phaser.Math.Clamp(Math.round(cam.zoom) + dir, 2, 5);
     if (nz === cam.zoom) return;
     sx ??= cam.width / 2;
     sy ??= cam.height / 2;
@@ -262,7 +265,7 @@ export class CityScene extends Phaser.Scene {
       this.tags.push(this.add.image(x + 3, y + 3, `tag${o}`).setOrigin(0).setDepth(28));
       if (o > 0) {
         for (const [sx, sy] of [[S - 8, S - 8], [8, S - 8]].slice(0, 1 + (b.id % 2))) {
-          const s = this.add.image(x + sx, y + sy, `gang${o}_${(b.id + sx) % 2}`).setDepth(8).setRotation(Math.atan2(sy - S / 2, sx - S / 2));
+          const s = this.shadows.add(this.add.image(x + sx, y + sy, `gang${o}_${(b.id + sx) % 2}`).setDepth(8).setRotation(Math.atan2(sy - S / 2, sx - S / 2)));
           this.gangIdle.push(s);
         }
       }
@@ -284,7 +287,7 @@ export class CityScene extends Phaser.Scene {
     const j = Phaser.Math.Between(0, BY);
     const n = node(i, j);
     const key = cop ? 'cop0' : `car${Phaser.Math.Between(0, 9)}`;
-    const spr = this.add.image(n.x, n.y, key).setDepth(10);
+    const spr = this.shadows.add(this.add.image(n.x, n.y, key).setDepth(10), 4);
     const light = this.add.image(n.x, n.y, 'glow_white').setDepth(27).setBlendMode(Phaser.BlendModes.ADD).setScale(0.6, 0.35).setAlpha(0);
     const a: Amb = { spr, light, i, j, x: n.x, y: n.y, route: [], speed: cop ? 70 : 34 + Math.random() * 20, rx: n.x, ry: n.y, angle: 0, cop };
     if (cop) a.siren = this.add.image(n.x, n.y, 'glow_red').setDepth(27).setBlendMode(Phaser.BlendModes.ADD).setScale(0.9);
@@ -312,7 +315,7 @@ export class CityScene extends Phaser.Scene {
   private spawnPeds() {
     for (let k = 0; k < 90; k++) {
       const block = Phaser.Math.Between(0, map.blocks.length - 1);
-      const spr = this.add.image(0, 0, `civ${Phaser.Math.Between(0, 9)}`).setDepth(9);
+      const spr = this.shadows.add(this.add.image(0, 0, `civ${Phaser.Math.Between(0, 9)}`).setDepth(9), 2);
       this.peds.push({ spr, block, t: Math.random() * 4 * (S - 16), speed: (9 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1), off: Math.round((Math.random() - 0.5) * 6) });
     }
   }
@@ -426,7 +429,8 @@ export class CityScene extends Phaser.Scene {
     this.handleKeys(dtReal);
 
     const cam = this.cameras.main;
-    cam.setRotation(view.wobble ? Math.sin(this.t * 0.35) * 0.008 : 0);
+    cam.setRotation(view.wobble ? Math.sin(this.t * 0.45) * 0.03 : 0);
+    cam.setBackgroundColor(Phaser.Display.Color.Interpolate.ColorWithColor(new Phaser.Display.Color(42, 10, 58), new Phaser.Display.Color(110, 14, 80), 100, 50 + Math.sin(this.t * 1.3) * 50));
 
     // time of day
     const night = nightFactor(state.minutes);
@@ -460,6 +464,7 @@ export class CityScene extends Phaser.Scene {
     this.syncOps(dtReal, night, flash);
     this.syncGoons();
     this.drawSelection();
+    this.shadows.update();
     this.hq.setY(map.lots[map.starterLot].y * TILE + 4 + Math.round(Math.sin(this.t * 3) * 2));
   }
 
@@ -489,7 +494,7 @@ export class CityScene extends Phaser.Scene {
       let ov = this.opViews.get(op.id);
       if (!ov || ov.kind !== v.kind) {
         if (ov) this.destroyOpView(ov);
-        const spr = this.add.image(v.x, v.y, key).setDepth(11);
+        const spr = this.shadows.add(this.add.image(v.x, v.y, key).setDepth(11), 4);
         const light = this.add.image(v.x, v.y, 'glow_white').setDepth(27).setBlendMode(Phaser.BlendModes.ADD).setScale(0.6, 0.35);
         ov = { spr, light, rx: v.x, ry: v.y, init: false, people: [], kind: v.kind };
         if (v.kind === 'cop') ov.siren = this.add.image(v.x, v.y, 'glow_red').setDepth(27).setBlendMode(Phaser.BlendModes.ADD).setScale(0.9);
@@ -527,7 +532,7 @@ export class CityScene extends Phaser.Scene {
       ov.people.forEach((p) => p.destroy());
       ov.people = want.map((k, i) => {
         const def = k.endsWith('#def');
-        const img = this.add.image(0, 0, k.replace('#def', '')).setDepth(12);
+        const img = this.shadows.add(this.add.image(0, 0, k.replace('#def', '')).setDepth(12), 2);
         img.setData('def', def);
         img.setData('i', i);
         return img;
@@ -563,7 +568,7 @@ export class CityScene extends Phaser.Scene {
       perBlock.set(g.post.block, idx + 1);
       let s = this.goonSprites.get(g.id);
       if (!s) {
-        s = this.add.image(0, 0, `crew${g.look}`).setDepth(13).setInteractive({ useHandCursor: true });
+        s = this.shadows.add(this.add.image(0, 0, `crew${g.look}`).setDepth(13).setInteractive({ useHandCursor: true }), 2);
         s.setData('goon', g.id);
         this.goonSprites.set(g.id, s);
       }

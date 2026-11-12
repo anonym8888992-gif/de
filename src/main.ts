@@ -94,7 +94,7 @@ class SimScene extends Phaser.Scene {
 }
 
 const fontsReady = Promise.race([
-  Promise.all(['8px "Press Start 2P"', '20px VT323', '40px Monoton'].map((f) => document.fonts.load(f))),
+  Promise.all(['8px "Press Start 2P"', '20px VT323', '60px "Mr Dafoe"'].map((f) => document.fonts.load(f))),
   new Promise((r) => setTimeout(r, 2500)),
 ]).catch(() => undefined);
 

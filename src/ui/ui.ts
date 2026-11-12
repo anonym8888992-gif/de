@@ -127,7 +127,7 @@ function renderTop() {
   const tot = stashTotal();
   const unr = unread();
   set('topbar', `
-    <div class="logo-sm">NEON<br><span>KINGPIN</span></div>
+    <div class="logo-sm">Neon Kingpin</div>
     <div class="st"><small>DIRTY</small><b class="dirty">${money(state.dirty)}</b></div>
     <div class="st"><small>CLEAN</small><b class="clean">${money(state.clean)}</b></div>
     <div class="st prod"><small>STASH ${tot}/${cap}</small><b>${PRODUCT_IDS.map((p) => `<span style="color:${PRODUCTS[p].css}">${PRODUCTS[p].name[0]}${state.stash[p]}</span>`).join(' ')}</b></div>
@@ -624,11 +624,10 @@ function tooltip(h: { type: 'block' | 'lot'; id: number; x: number; y: number } 
 function renderTitle() {
   const save = hasSave();
   $('title').innerHTML = `
-    <div class="sun"></div><div class="grid-floor"></div>
-    <div class="vhs">PLAY ▶<br><small>SP 00:19:86</small></div>
+    <div class="waves"></div>
     <div class="title-card">
-      <div class="logo"><span class="l1">NEON</span><span class="l2">KINGPIN</span></div>
-      <div class="sub2">MIAMI · 1986</div>
+      <div class="logo"><span class="l1">Neon</span><span class="l2">Kingpin</span></div>
+      <div class="sub2">MIAMI 1986</div>
       <div class="menu">
         ${save ? '<button data-a="continue">CONTINUE</button>' : ''}
         <button data-a="new">NEW GAME</button>

@@ -3,9 +3,10 @@ import { bus } from '../bus';
 import { BIZ, INK, NEON, PRODUCT_IDS, TILE, type BizKind, type Floor } from '../config';
 import { mulberry32 } from '../sim/rng';
 import { Pix, shade, toTexture } from '../gfx/pix';
+import { Shadows } from '../gfx/shadows';
 import { map, state, view } from '../state';
 
-const WALL = 8;
+const WALL = 10;
 
 interface Furn { key: string; x: number; y: number; rot?: number }
 interface Npc {
@@ -66,14 +67,14 @@ const BASE: Record<BizKind, Furn[]> = {
 };
 
 const FLOORS: Record<BizKind, { floor: Floor; color: number }> = {
-  safehouse: { floor: 'linoleum', color: 0xc9c08a },
-  motel: { floor: 'carpet', color: 0x2f6a5a },
+  safehouse: { floor: 'linoleum', color: 0xe0c060 },
+  motel: { floor: 'carpet', color: 0x14806c },
   warehouse: { floor: 'concrete', color: 0x8a8a92 },
   nightclub: { floor: 'dance', color: 0x1a1024 },
-  arcade: { floor: 'carpet', color: 0x2a1a5a },
-  pawnshop: { floor: 'wood', color: 0x8a5a34 },
+  arcade: { floor: 'carpet', color: 0x2a1490 },
+  pawnshop: { floor: 'wood', color: 0xb0602c },
   laundromat: { floor: 'tile', color: 0xe8f0f4 },
-  videostore: { floor: 'carpet', color: 0x5a1a2a },
+  videostore: { floor: 'carpet', color: 0x9a1438 },
   carlot: { floor: 'concrete', color: 0x9a9aa2 },
   diner: { floor: 'checker', color: 0xf0ece4 },
   marina: { floor: 'wood', color: 0x9a6a3e },
@@ -91,6 +92,7 @@ export class InteriorScene extends Phaser.Scene {
   private danceTiles: Phaser.GameObjects.Rectangle[] = [];
   private bricks: Phaser.GameObjects.Image[] = [];
   private t = 0;
+  private shadows!: Shadows;
   private offs: (() => void)[] = [];
   private drag = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
 
@@ -113,6 +115,7 @@ export class InteriorScene extends Phaser.Scene {
     const key = `room_${this.lotId}`;
     toTexture(this, key, drawRoom(this.kind, this.w, this.h, this.lotId));
     this.add.image(-WALL, -WALL, key).setOrigin(0).setDepth(0);
+    this.shadows = new Shadows(this, 4);
 
     this.blocked = new Uint8Array(this.w * this.h);
     if (this.kind === 'nightclub') this.makeDanceFloor();
@@ -122,7 +125,7 @@ export class InteriorScene extends Phaser.Scene {
     this.spawnNpcs();
 
     const cam = this.cameras.main;
-    cam.setBackgroundColor('#0b0614');
+    cam.setBackgroundColor('#2a0a3a');
     cam.setRoundPixels(true);
     this.fit();
     this.scale.on('resize', this.fit, this);
@@ -171,7 +174,7 @@ export class InteriorScene extends Phaser.Scene {
 
   private placeFurn(f: Furn) {
     const img = this.add.image(f.x * TILE, f.y * TILE, f.key).setOrigin(0).setDepth(5);
-    this.add.image(f.x * TILE + 2, f.y * TILE + 2, f.key).setOrigin(0).setDepth(4).setTint(0x000000).setAlpha(0.35);
+    this.add.image(f.x * TILE + 4, f.y * TILE + 4, f.key).setOrigin(0).setDepth(4).setTintFill(0x140a1e).setAlpha(0.5);
     const tw = Math.ceil(img.width / TILE);
     const th = Math.ceil(img.height / TILE);
     if (f.key !== 'f_stool') {
@@ -223,7 +226,7 @@ export class InteriorScene extends Phaser.Scene {
   private spawnNpcs() {
     const k = this.kind;
     const add = (key: string, x: number, y: number, mode: Npc['mode'], face = 0) => {
-      const spr = this.add.image(x, y, key).setDepth(10);
+      const spr = this.shadows.add(this.add.image(x, y, key).setDepth(10), 3);
       const n: Npc = { spr, mode, x, y, path: [], wait: Math.random() * 3, seed: Math.random() * 10, face };
       this.npcs.push(n);
       return n;
@@ -308,7 +311,7 @@ export class InteriorScene extends Phaser.Scene {
     const dt = Math.min(0.1, deltaMs / 1000);
     this.t += dt;
     const cam = this.cameras.main;
-    cam.setRotation(view.wobble ? Math.sin(this.t * 0.35) * 0.008 : 0);
+    cam.setRotation(view.wobble ? Math.sin(this.t * 0.45) * 0.03 : 0);
 
     // dance floor colour cycling
     const cols = [NEON.pink, NEON.cyan, NEON.yellow, NEON.purple, NEON.orange];
@@ -328,6 +331,7 @@ export class InteriorScene extends Phaser.Scene {
 
     this.syncCrew(dt);
     this.syncStash();
+    this.shadows.update();
   }
 
   private syncCrew(dt: number) {
@@ -339,7 +343,7 @@ export class InteriorScene extends Phaser.Scene {
       let n = this.crew.get(g.id);
       if (!n) {
         const c = this.freeCell();
-        const spr = this.add.image(c.x * TILE + 8, c.y * TILE + 8, `crew${g.look}`).setDepth(11).setInteractive({ useHandCursor: true });
+        const spr = this.shadows.add(this.add.image(c.x * TILE + 8, c.y * TILE + 8, `crew${g.look}`).setDepth(11).setInteractive({ useHandCursor: true }), 3);
         spr.setData('goon', g.id);
         n = { spr, mode: 'walk', x: c.x * TILE + 8, y: c.y * TILE + 8, path: [], wait: Math.random() * 2, seed: Math.random() * 10, face: 0 };
         this.crew.set(g.id, n);
@@ -394,28 +398,31 @@ function drawRoom(kind: BizKind, w: number, h: number, seed: number) {
   p.rect(ox, oy, W, H, color);
   switch (floor) {
     case 'concrete':
-      p.dither(ox, oy, W, H, shade(color, -0.1), 0.15, rng);
-      p.dither(ox, oy, W, H, shade(color, 0.08), 0.08, rng);
       for (let i = 0; i < 8; i++) p.ellipse(ox + rng() * W, oy + rng() * H, 4 + rng() * 8, 2 + rng() * 5, 0x3a3a40, 90);
       for (let x = ox + 32; x < ox + W; x += 64) for (let y = oy; y < oy + H; y += 6) p.rect(x, y, 2, 3, NEON.yellow, 160);
       break;
     case 'checker':
-      p.checker(ox, oy, W, H, 0x1a1a22, 8);
+      p.checker(ox, oy, W, H, 0x1a1a22, 12);
       break;
-    case 'carpet':
-      for (let y = oy; y < oy + H; y += 8) for (let x = ox; x < ox + W; x += 8) {
-        const k = ((x - ox) / 8 + (y - oy) / 8) % 4;
-        if (k === 0) { p.set(x + 3, y + 3, shade(color, 0.35)); p.set(x + 4, y + 4, shade(color, 0.35)); }
-        if (k === 2) p.rect(x + 1, y + 6, 2, 1, kind === 'arcade' ? [NEON.pink, NEON.cyan, NEON.yellow][(x + y) % 3] : shade(color, -0.25));
+    case 'carpet': {
+      const hi = kind === 'arcade' ? NEON.cyan : shade(color, 0.35);
+      const lo = kind === 'arcade' ? NEON.pink : shade(color, -0.3);
+      for (let y = oy; y < oy + H; y += 12) for (let x = ox + (((y - oy) / 12) % 2 ? 6 : 0); x < ox + W; x += 12) {
+        p.rect(x + 5, y + 3, 2, 6, hi);
+        p.rect(x + 3, y + 5, 6, 2, hi);
+        p.set(x + 6, y + 6, lo);
       }
+      p.frame(ox + 4, oy + 4, W - 8, H - 8, lo);
+      p.frame(ox + 6, oy + 6, W - 12, H - 12, hi);
       break;
+    }
     case 'dance':
       for (let x = ox; x <= ox + W; x += 16) p.rect(x, oy, 1, H, 0x2a2038);
       for (let y = oy; y <= oy + H; y += 16) p.rect(ox, y, W, 1, 0x2a2038);
       break;
     case 'tile':
-      for (let x = ox; x <= ox + W; x += 8) p.rect(x, oy, 1, H, 0xc0ccd4);
-      for (let y = oy; y <= oy + H; y += 8) p.rect(ox, y, W, 1, 0xc0ccd4);
+      for (let x = ox; x <= ox + W; x += 12) p.rect(x, oy, 2, H, 0xa8c0d0);
+      for (let y = oy; y <= oy + H; y += 12) p.rect(ox, y, W, 2, 0xa8c0d0);
       break;
     case 'wood':
       for (let y = oy; y < oy + H; y += 5) {
@@ -425,7 +432,7 @@ function drawRoom(kind: BizKind, w: number, h: number, seed: number) {
       }
       break;
     case 'linoleum':
-      p.checker(ox, oy, W, H, shade(color, -0.12), 16);
+      p.checker(ox, oy, W, H, shade(color, -0.25), 12);
       for (let i = 0; i < 5; i++) p.ellipse(ox + rng() * W, oy + rng() * H, 3 + rng() * 6, 2 + rng() * 4, 0x6a5a3a, 70);
       break;
   }
@@ -439,12 +446,13 @@ function drawRoom(kind: BizKind, w: number, h: number, seed: number) {
   p.rect(ox, oy, 3, H, INK, 70);
 
   // walls
-  const wc = 0x241a30;
+  const wc = 0xf0e4f4;
   p.rect(0, 0, W + WALL * 2, WALL, wc);
   p.rect(0, H + WALL, W + WALL * 2, WALL, wc);
   p.rect(0, 0, WALL, H + WALL * 2, wc);
   p.rect(W + WALL, 0, WALL, H + WALL * 2, wc);
-  p.frame(WALL - 1, WALL - 1, W + 2, H + 2, 0x4a3a5a);
+  p.frame(WALL - 1, WALL - 1, W + 2, H + 2, INK);
+  p.frame(WALL - 2, WALL - 2, W + 4, H + 4, 0x8a7a9a);
   p.frame(0, 0, W + WALL * 2, H + WALL * 2, INK);
   // windows with blinds
   for (let x = ox + 24; x < ox + W - 24; x += 64) {

@@ -32,29 +32,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-shadow: 2px 0 0 rgba(255, 42, 138, 0.85), -2px 0 0 rgba(45, 226, 230, 0.85);
 }
 
-/* ---------------- top bar ---------------- */
-#topbar {
-  position: absolute; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: stretch; gap: 0;
-  background: var(--ink); border-bottom: 3px solid var(--pink); box-shadow: 0 3px 0 var(--cyan);
-}
-.logo-sm { font-family: var(--px); font-size: 11px; line-height: 1.25; padding: 10px 16px; color: var(--yellow); border-right: 2px solid #2a1a3a; transform: skewX(-8deg); }
-.logo-sm span { color: var(--pink); }
-.st { display: flex; flex-direction: column; justify-content: center; padding: 0 16px; border-right: 2px solid #2a1a3a; min-width: 96px; }
-.st small { font-family: var(--px); font-size: 7px; color: var(--dim); letter-spacing: 1px; }
-.st b { font-family: var(--vt); font-size: 26px; line-height: 1; font-weight: 400; font-variant-numeric: tabular-nums; }
-.st .dirty { color: var(--green); }
-.st .clean { color: var(--cyan); }
-.st.prod b { font-size: 22px; }
-.stars { letter-spacing: 1px; }
-.star { color: #3a2a48; font-weight: 400; }
-.star.on { color: var(--red); text-shadow: 0 0 6px var(--red); animation: blink 0.8s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0.45; } }
-.grow { flex: 1; }
-.clock b { color: var(--yellow); }
-.speeds { display: flex; align-items: center; gap: 4px; padding: 0 12px; }
-.sp { background: transparent; border: 2px solid #3a2a48; color: var(--dim); font-family: var(--px); font-size: 9px; padding: 8px 8px; letter-spacing: -2px; }
-.sp.on { background: var(--yellow); color: var(--ink); border-color: var(--yellow); }
-.sp:hover:not(.on) { border-color: var(--pink); color: #fff; }
 
 /* ---------------- left menu ---------------- */
 #menu { position: absolute; top: 70px; left: 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -189,40 +166,73 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #tooltip b { display: block; font-weight: 400; font-size: 20px; }
 #tooltip small { font-family: var(--px); font-size: 7px; color: var(--dim); }
 
-/* ---------------- title ---------------- */
-#title {
-  position: absolute; inset: 0; z-index: 10; overflow: hidden; display: grid; place-items: center;
-  background: linear-gradient(180deg, #12002a 0%, #3a0a5a 40%, #ff2a8a 62%, #ff8a1f 70%, #12002a 70.2%);
-  animation: hue 8s linear infinite; transition: opacity 0.5s;
-}
-@keyframes hue { 0% { filter: hue-rotate(0deg); } 50% { filter: hue-rotate(-40deg); } 100% { filter: hue-rotate(0deg); } }
-#title.gone { opacity: 0; pointer-events: none !important; }
-#title::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.25) 0 2px, transparent 2px 4px); pointer-events: none; }
-.sun { position: absolute; left: 50%; top: 34%; width: 340px; height: 340px; margin-left: -170px; border-radius: 50%;
-  background: repeating-linear-gradient(180deg, #ffe14d 0 18px, #ff8a1f 18px 26px, transparent 26px 32px), linear-gradient(#ffe14d, #ff2a8a);
-  -webkit-mask: linear-gradient(#000 0 55%, transparent 55% 58%, #000 58% 66%, transparent 66% 70%, #000 70% 76%, transparent 76% 81%, #000 81%);
-  mask: linear-gradient(#000 0 55%, transparent 55% 58%, #000 58% 66%, transparent 66% 70%, #000 70% 76%, transparent 76% 81%, #000 81%);
-}
-.grid-floor { position: absolute; left: -50%; right: -50%; bottom: 0; height: 30%; background:
-  repeating-linear-gradient(90deg, rgba(45, 226, 230, 0.7) 0 2px, transparent 2px 60px),
-  repeating-linear-gradient(0deg, rgba(45, 226, 230, 0.7) 0 2px, transparent 2px 30px);
-  transform: perspective(300px) rotateX(60deg); transform-origin: top; animation: floor 1.2s linear infinite; }
-@keyframes floor { to { background-position: 0 30px; } }
-.vhs { position: absolute; top: 24px; left: 30px; font-family: var(--vt); font-size: 40px; color: #fff; text-shadow: 2px 0 var(--pink), -2px 0 var(--cyan); line-height: 0.9; }
-.vhs small { font-size: 24px; }
-.title-card { position: relative; z-index: 2; text-align: center; }
-.logo { display: flex; flex-direction: column; align-items: center; animation: sway 4s ease-in-out infinite; }
-@keyframes sway { 0%, 100% { transform: rotate(-3deg) scale(1); } 50% { transform: rotate(3deg) scale(1.04); } }
-.logo .l1 { font-family: 'Monoton', var(--px); font-size: 120px; line-height: 1; color: var(--cyan); text-shadow: 0 0 18px var(--cyan), 6px 6px 0 var(--pink); }
-.logo .l2 { font-family: var(--px); font-size: 52px; color: var(--yellow); text-shadow: 4px 0 var(--pink), -4px 0 var(--cyan), 0 6px 0 #000; transform: skewX(-10deg); margin-top: -6px; }
-.sub2 { font-family: var(--px); font-size: 14px; letter-spacing: 8px; margin: 22px 0 40px; color: #fff; text-shadow: 2px 2px 0 #000; }
-.menu { display: flex; flex-direction: column; gap: 14px; align-items: center; }
-.menu button { background: none; border: none; font-family: var(--px); font-size: 24px; color: #fff; text-shadow: 3px 3px 0 #000; padding: 6px 16px; }
-.menu button:hover { color: var(--ink); background: var(--yellow); text-shadow: none; animation: jitter 0.2s steps(2) infinite; }
-@keyframes jitter { 50% { transform: translate(2px, -1px) rotate(-1deg); } }
-.fine { font-size: 18px; color: #f0c8ff; margin-top: 40px; text-shadow: 1px 1px 0 #000; }
 
 #over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(60, 0, 20, 0.75); z-index: 9; }
 .over-card { text-align: center; }
 .over-card h1 { font-family: var(--px); font-size: 40px; color: var(--red); text-shadow: 4px 0 var(--pink), -4px 0 var(--cyan); transform: rotate(-3deg); }
 .over-card p { font-size: 24px; }
+
+/* ================= Hotline Miami pass ================= */
+@keyframes cyc { 0% { color: var(--pink); } 33% { color: var(--yellow); } 66% { color: var(--cyan); } 100% { color: var(--pink); } }
+@keyframes wob { 0%, 100% { transform: rotate(-2deg) scale(1); } 50% { transform: rotate(2deg) scale(1.04); } }
+@keyframes rgb { 0%, 100% { text-shadow: 3px 0 0 var(--pink), -3px 0 0 var(--cyan), 0 4px 0 #000; } 50% { text-shadow: -3px 1px 0 var(--pink), 3px -1px 0 var(--cyan), 0 4px 0 #000; } }
+
+/* floating HUD instead of a bar */
+#topbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 74px; display: flex; align-items: center; gap: 22px; padding: 0 18px;
+  background: linear-gradient(180deg, rgba(10, 4, 18, 0.92) 0%, rgba(10, 4, 18, 0.6) 65%, transparent 100%);
+}
+.logo-sm { font-family: 'Mr Dafoe', cursive; font-size: 40px; line-height: 1; color: var(--pink); padding: 0 8px 0 0; animation: wob 3s ease-in-out infinite, rgb 1.6s steps(2) infinite; white-space: nowrap; }
+.st { display: flex; flex-direction: column; gap: 3px; }
+.st small { font-family: var(--px); font-size: 8px; color: #fff; opacity: 0.75; letter-spacing: 1px; text-shadow: 2px 2px 0 #000; }
+.st b { font-family: var(--px); font-size: 16px; line-height: 1; font-weight: 400; color: #fff; text-shadow: 3px 3px 0 #000, -1px 0 0 var(--pink), 1px 0 0 var(--cyan); }
+.st .dirty { color: var(--green); }
+.st .clean { color: var(--cyan); }
+.st.prod b { font-size: 12px; }
+.clock b { color: var(--yellow); animation: wob 4s ease-in-out infinite; display: inline-block; }
+.stars { letter-spacing: 2px; }
+.star { color: #3a2a48; font-family: var(--vt); font-size: 26px; }
+.star.on { color: var(--red); text-shadow: 0 0 8px var(--red), 2px 2px 0 #000; animation: blink 0.6s steps(2) infinite; }
+.grow { flex: 1; }
+.speeds { display: flex; gap: 4px; }
+.sp { background: rgba(0, 0, 0, 0.6); border: 3px solid #fff; color: #fff; font-family: var(--px); font-size: 10px; padding: 8px 9px; letter-spacing: -2px; transform: skewX(-10deg); }
+.sp.on { background: var(--pink); border-color: var(--pink); color: #000; }
+.sp:hover:not(.on) { background: var(--cyan); color: #000; border-color: var(--cyan); }
+
+/* menu buttons: chunky, skewed, hard shadows */
+#menu { top: 86px; }
+.mb { font-size: 11px; border: 3px solid #fff; background: rgba(10, 4, 18, 0.9); box-shadow: 5px 5px 0 var(--pink); transform: skewX(-10deg) rotate(-1deg); }
+.mb:hover, .mb.on { background: var(--yellow); color: #000; border-color: #000; box-shadow: 5px 5px 0 var(--cyan); transform: skewX(-10deg) rotate(1deg) scale(1.04); }
+
+/* panels */
+#panel, .mwin { border: 3px solid #fff; box-shadow: 8px 8px 0 var(--pink), 8px 8px 0 3px #000; background: rgba(10, 4, 18, 0.94); }
+#panel { top: 86px; }
+.ph h2 { font-family: 'Mr Dafoe', cursive; font-size: 38px; line-height: 0.95; margin: 8px 0 6px; color: #fff; text-shadow: 3px 3px 0 #000, 3px 0 0 var(--pink), -2px 0 0 var(--cyan); transform: rotate(-2deg); transform-origin: left; }
+.mt { font-family: 'Mr Dafoe', cursive; font-size: 56px; line-height: 1; transform: rotate(-3deg); animation: cyc 3s linear infinite; text-shadow: 4px 4px 0 #000; margin: -6px 0 16px; }
+.obj { border: 3px solid #fff; border-left: 8px solid var(--yellow); box-shadow: 6px 6px 0 var(--cyan); }
+.obj h4 { font-family: 'Mr Dafoe', cursive; font-size: 28px; color: var(--yellow); text-shadow: 2px 2px 0 #000; }
+.toast { border: 2px solid #fff; border-left-width: 8px; box-shadow: 5px 5px 0 #000; font-size: 22px; transform: skewX(-4deg); }
+.btn { border-width: 3px; box-shadow: 4px 4px 0 #000; }
+
+/* title: pulsing colour bands + wobbling script logo */
+#title { position: absolute; inset: 0; z-index: 10; overflow: hidden; display: grid; place-items: center; background: #1a0428; transition: opacity 0.5s; }
+#title.gone { opacity: 0; pointer-events: none !important; }
+#title::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 4px), radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.7)); }
+.waves {
+  position: absolute; inset: -50%;
+  background: repeating-linear-gradient(-28deg, #ff2a8a 0 60px, #b4106a 60px 120px, #5a0a6a 120px 180px, #2de2e6 180px 200px, #5a0a6a 200px 260px, #b4106a 260px 320px);
+  animation: bands 6s linear infinite, huey 10s linear infinite; opacity: 0.85;
+}
+@keyframes bands { to { transform: translate(340px, 0); } }
+@keyframes huey { 0%, 100% { filter: hue-rotate(0deg) saturate(1.2); } 50% { filter: hue-rotate(-25deg) saturate(1.3); } }
+.title-card { position: relative; z-index: 2; text-align: center; }
+.logo { display: flex; flex-direction: column; align-items: center; animation: wob 3.2s ease-in-out infinite; }
+.logo .l1, .logo .l2 { font-family: 'Mr Dafoe', cursive; line-height: 0.8; color: #fff; }
+.logo .l1 { font-size: 150px; animation: rgb 1.2s steps(2) infinite; }
+.logo .l2 { font-size: 190px; color: var(--yellow); margin-top: -20px; text-shadow: 6px 6px 0 #000, -4px 0 0 var(--pink), 4px 0 0 var(--cyan); transform: rotate(-4deg); }
+.sub2 { font-family: var(--px); font-size: 16px; letter-spacing: 10px; margin: 70px 0 44px; color: #fff; text-shadow: 3px 3px 0 #000; }
+.menu { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+.menu button { background: none; border: none; font-family: var(--px); font-size: 26px; color: #fff; text-shadow: 4px 4px 0 #000; padding: 8px 18px; animation: wob 2.4s ease-in-out infinite; }
+.menu button:nth-child(2) { animation-delay: -1.2s; }
+.menu button:hover { color: #000; background: var(--yellow); text-shadow: none; box-shadow: 6px 6px 0 #000; }
+.fine { font-size: 20px; color: #fff; margin-top: 44px; text-shadow: 2px 2px 0 #000; }
