@@ -2,7 +2,7 @@
 
 A satirical top-down crime management game for the browser. Pixel art in a Hotline Miami / GTA 2 vein, with a CRT filter and neon at night.
 
-You inherit Uncle Vic's stash house in Palmetto Flats. Run corners, take blocks from three rival gangs, buy or shake down businesses, launder the money and keep the Vice Squad off your back.
+You inherit Uncle Vic's stash house in Palmetto Flats. Build production chains for seven products (weed, moonshine, MDMA, meth, LSD, cocaine, heroin), staff them with your crew, sell on street corners, take blocks from three rival gangs, launder the money and keep the Vice Squad off your back. Production steps are deliberately game-abstract.
 
 ## Run
 
@@ -16,7 +16,7 @@ pnpm build    # typecheck + production build into dist/
 
 - **Turf:** the city is 30 blocks. Los Flamingos, The Barracudas and Tiger Mob hold the rest. Send crew to take blocks next to yours. Rivals counter-attack, so post guards.
 - **Corners:** post dealers on your blocks. They sell from your stash for dirty cash.
-- **Product:** order from Sal (a van drives it in) or own the Marina and import by boat. Deliveries can get pulled over.
+- **Production:** place stations inside a stash house, warehouse or motel (Grow Tent > Drying Rack > Trim Table, Lab Bench > Cooling Trays, ...). One worker keeps two stations running. Supplies come from Sal or, for coca leaves and opium, cheaply by boat through the Marina. See RECIPES in-game.
 - **Businesses:** buy them with clean money or shake them down for protection. Each type has a perk, and owned ones have upgrades you place inside.
 - **Heat:** wanted stars lead to corner busts and DEA raids. Pay off Captain Morales or own a diner.
 - **Phone:** the answering machine brings jobs, deals, threats and truce offers.

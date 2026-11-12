@@ -8,7 +8,8 @@ import { Pix, textWidth, toTexture } from './gfx/pix';
 import { generateSprites } from './gfx/sprites';
 import { CityScene } from './scenes/CityScene';
 import { InteriorScene } from './scenes/InteriorScene';
-import { checkObjectives, resetClock, update } from './sim/sim';
+import { resetClock, update } from './sim/sim';
+import { checkObjectives } from './sim/tutorial';
 import { map, state, view } from './state';
 import { initUI } from './ui/ui';
 

@@ -254,3 +254,65 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #alarm.on { animation: alarm 0.5s steps(2) 6; }
 @keyframes alarm { 0% { box-shadow: inset 0 0 80px 20px rgba(255, 30, 60, 0.75); } 100% { box-shadow: inset 0 0 0 0 rgba(255, 30, 60, 0); } }
 #tooltip .th { display: block; color: var(--yellow); margin-top: 2px; }
+
+/* ================= production UI ================= */
+.ichip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; margin: 2px 2px 2px 0; border: 2px solid var(--ic); color: var(--ic); font-family: var(--px); font-size: 7px; background: rgba(0, 0, 0, 0.35); }
+.ichip b { color: #fff; font-weight: 400; }
+.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0; }
+.recipe i { font-style: normal; font-family: var(--px); font-size: 9px; color: var(--yellow); }
+.pd { display: inline-block; padding: 2px 5px; margin-right: 4px; border-bottom: 3px solid var(--ic); color: var(--ic); font-family: var(--px); font-size: 9px; text-shadow: 2px 2px 0 #000; }
+.st.prod { cursor: pointer; }
+.demand { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--px); font-size: 8px; padding: 7px 9px; background: var(--ink); border: 2px solid #3a2a48; color: var(--dim); }
+.chip.on { border-color: var(--yellow); color: var(--yellow); background: #2a2008; }
+.strow { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border: 2px solid #2a1a3a; border-left: 5px solid #3a2a48; margin-bottom: 4px; cursor: pointer; }
+.strow:hover { border-color: var(--cyan); }
+.strow.running { border-left-color: var(--green); }
+.strow.noinput, .strow.full { border-left-color: var(--red); }
+.strow.nostaff { border-left-color: var(--dim); opacity: 0.75; }
+.strow b { font-weight: 400; font-size: 20px; }
+.strow small { display: block; font-family: var(--px); font-size: 7px; color: var(--dim); line-height: 1.6; }
+.strow .pct { font-family: var(--px); font-size: 10px; color: var(--green); }
+.chain { border: 2px solid #2a1a3a; border-left: 6px solid var(--ic); padding: 8px 10px; margin-bottom: 8px; background: rgba(20, 10, 30, 0.6); }
+.chain .ch { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.chain .ch b { font-family: var(--px); font-size: 11px; color: var(--ic); font-weight: 400; text-shadow: 2px 2px 0 #000; }
+.chain .ch small { font-family: var(--px); font-size: 7px; color: var(--dim); }
+.cstep { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 8px; border-top: 1px dashed #2f2140; padding-top: 4px; }
+.cstep .sn { font-family: var(--px); font-size: 8px; color: #fff; }
+.cstep .sn small { display: block; color: var(--green); font-size: 7px; margin-top: 3px; }
+.mwin.recipes { width: min(760px, calc(100% - 40px)); }
+
+/* build bar */
+#bottom.build { bottom: 10px; padding: 8px; gap: 10px; max-width: calc(100% - 360px); background: rgba(10, 4, 18, 0.94); border: 3px solid #fff; box-shadow: 6px 6px 0 var(--pink); }
+.buildbar { display: flex; gap: 4px; overflow-x: auto; }
+.bt { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 76px; padding: 6px 4px; background: var(--ink); border: 2px solid #3a2a48; color: #fff; }
+.bt b { font-family: var(--px); font-size: 6px; font-weight: 400; line-height: 1.3; text-align: center; }
+.bt small { font-family: var(--px); font-size: 7px; color: var(--green); }
+.bt .bi { font-family: var(--px); font-size: 8px; color: #000; background: var(--ic); padding: 4px 5px; min-width: 26px; text-align: center; box-shadow: 2px 2px 0 #000; }
+.bt:hover:not([disabled]) { border-color: var(--yellow); transform: translateY(-2px); }
+.bt.on { border-color: var(--yellow); background: #2a2008; }
+.bt[disabled] { opacity: 0.35; cursor: not-allowed; }
+.placing { position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--yellow); color: #000; font-family: var(--px); font-size: 8px; padding: 8px 12px; box-shadow: 4px 4px 0 #000; }
+
+/* tutorial card */
+#objective { width: 330px; bottom: 70px; }
+.obj.tut { border-left-color: var(--pink); box-shadow: 6px 6px 0 var(--yellow); }
+.obj .ot { font-family: var(--px); font-size: 11px; line-height: 1.5; color: #fff; margin: 4px 0 6px; text-shadow: 2px 2px 0 #000; }
+.obj .od { font-size: 20px; line-height: 1.05; color: #e8d8f0; margin: 0 0 8px; }
+.obj .ob { display: flex; gap: 6px; align-items: center; }
+.opips { display: flex; gap: 4px; margin-top: 10px; }
+.opips i { flex: 1; height: 5px; background: #3a2a48; }
+.opips i.d { background: var(--yellow); }
+.opips i.c { background: var(--pink); animation: blink 0.6s steps(2) infinite; }
+#objective.flash .obj { animation: stepflash 0.6s steps(3); }
+@keyframes stepflash { 0% { background: var(--yellow); transform: scale(1.06) rotate(-1deg); } 100% { background: var(--ink); } }
+.tut-glow { position: relative; z-index: 3; outline: 3px solid var(--yellow) !important; outline-offset: 2px; animation: tutglow 0.7s ease-in-out infinite alternate; }
+@keyframes tutglow { from { box-shadow: 0 0 0 0 rgba(255, 225, 77, 0.9); } to { box-shadow: 0 0 18px 6px rgba(255, 225, 77, 0.6); } }
+#modal { z-index: 5; }
+#toasts { bottom: 150px; }
+.obj h4 { font-family: var(--px) !important; font-size: 9px !important; color: var(--pink) !important; letter-spacing: 1px; text-shadow: 2px 2px 0 #000; }
+.goon .gs .seg i { width: 5px; height: 7px; }
+.ord { padding: 5px 0; }
+.star { color: #4a3458 !important; }
+.star.on { color: var(--red) !important; }

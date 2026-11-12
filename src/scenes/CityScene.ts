@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { sfx } from '../audio';
 import { bus } from '../bus';
-import { GANGS, NEON, TILE } from '../config';
+import { GANGS, ITEMS, NEON, STATIONS, TILE, type ItemId } from '../config';
 import { BX, BY, WORLD_H, WORLD_W, node, type Pt } from '../sim/cityMap';
 import { map, state, stars, view, type Op } from '../state';
 import type { Sign } from '../gfx/cityArt';
@@ -97,6 +97,7 @@ export class CityScene extends Phaser.Scene {
   private drag = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private t = 0;
+  private smokeT = 0;
   private lastClick = { t: 0, lot: -1 };
   private offs: (() => void)[] = [];
   private turfKey = '';
@@ -146,7 +147,7 @@ export class CityScene extends Phaser.Scene {
       bus.on('changed', () => this.refreshTurf()),
       bus.on('sale', (e) => {
         const s = this.goonSprites.get(e.goon);
-        if (s) this.float(s.x, s.y - 10, `+$${e.amount}`, e.product === 'snow' ? '#e8f4ff' : e.product === 'candy' ? '#ff5fd2' : '#7dff6a');
+        if (s) this.float(s.x, s.y - 10, `+$${e.amount}`, ITEMS[e.product as ItemId]?.css ?? '#7dff6a');
         sfx('sale');
       }),
       bus.on('cash', (e) => { this.float(e.x, e.y - 14, `+$${e.amount}`, '#ffe14d', 10); sfx('cash'); }),
@@ -527,8 +528,27 @@ export class CityScene extends Phaser.Scene {
     this.syncGoons();
     this.drawSelection();
     this.drawTracers(dtReal);
+    this.smokeStacks(dtReal);
     this.shadows.update();
     this.hq.setY(map.lots[map.starterLot].y * TILE + 8 + Math.round(Math.sin(this.t * 3) * 3));
+  }
+
+  /** Buildings with running labs or stills puff smoke from the roof. */
+  private smokeStacks(dt: number) {
+    this.smokeT -= dt;
+    if (this.smokeT > 0 || view.speed === 0) return;
+    this.smokeT = 0.45;
+    for (const k of Object.keys(state.biz)) {
+      const st = state.biz[Number(k)].stations.filter((s) => s.status === "running" && STATIONS[s.type].fumes);
+      if (!st.length) continue;
+      const l = map.lots[Number(k)];
+      for (let i = 0; i < Math.min(3, st.length); i++) {
+        const x = (l.x + 1 + Math.random() * (l.w - 2)) * TILE;
+        const y = (l.y + 1 + Math.random() * (l.h - 2)) * TILE;
+        const s = this.add.image(x, y, "smoke").setDepth(24).setAlpha(0.6).setScale(1.2);
+        this.tweens.add({ targets: s, x: x + 18 + Math.random() * 12, y: y - 30 - Math.random() * 20, alpha: 0, scale: 3.2, duration: 2600, onComplete: () => s.destroy() });
+      }
+    }
   }
 
   private drawTracers(dt: number) {
@@ -639,7 +659,7 @@ export class CityScene extends Phaser.Scene {
     const alive = new Set<number>();
     const perBlock = new Map<number, number>();
     for (const g of state.goons) {
-      if (g.status !== 'posted' || !g.post) continue;
+      if (g.status !== 'posted' || !g.post || g.post.kind === 'work') continue;
       alive.add(g.id);
       const idx = perBlock.get(g.post.block) ?? 0;
       perBlock.set(g.post.block, idx + 1);

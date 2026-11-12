@@ -1,16 +1,20 @@
 import { audio, initAudio, setMusic, setSfx, sfx } from '../audio';
 import { bus, type ToastKind } from '../bus';
 import {
-  BIZ, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS, TILE, type BizKind, type ProductId,
+  BIZ, CHAINS, DISTRICTS, GANGS, ITEMS, LAUNDER_FEE, MID_IDS, PRODUCT_IDS, STATIONS, STATION_IDS, SUPPLY_IDS, TILE,
+  type BizKind, type ItemId, type StationId, type SupplyId,
 } from '../config';
 import { answer, introCalls, removeMsg, unread } from '../sim/phone';
+import { STATIONS_PER_WORKER, canProduce, findStation, removeStation, setRecipe, statusText as stationStatus } from '../sim/production';
 import {
-  OBJECTIVES, adjacentToPlayer, bail, bailCost, blockDefense, bribe, bribeCost, buyBiz, buyUpgrade, crewPower, fire,
-  guardsOn, hire, importShipment, odds, orderFromSal, recall, sellBiz, sendPost, startContract, startExtort, startTakeover,
+  adjacentToPlayer, bail, bailCost, blockDefense, bribe, bribeCost, buyBiz, buyUpgrade, crewPower, fire,
+  guardsOn, hire, importShipment, odds, orderCost, orderFromSal, recall, sellBiz, sendPost, sendToWork, startContract, startExtort, startTakeover,
+  type Order,
 } from '../sim/sim';
+import { STEPS, TUTORIAL_LEN, currentStep, skipTutorial } from '../sim/tutorial';
 import {
   bizActive, bizFx, clock, goonName, hasSave, loadGame, map, money, newGame, playerBlocks, saveGame, seedNewGame,
-  setState, stars, stashCap, stashTotal, state, view, type Goon,
+  setState, stars, stashCap, stashTotal, state, view, workersAt, type Goon,
 } from '../state';
 import { nightFactor } from '../scenes/CityScene';
 
@@ -27,10 +31,10 @@ function esc(s: string) {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
-type Modal = null | 'phone' | 'sal' | 'crew' | 'city' | 'help' | 'options';
+type Modal = null | 'phone' | 'sal' | 'crew' | 'city' | 'help' | 'options' | 'recipes';
 
 interface Picker {
-  kind: 'corner' | 'guard' | 'takeover' | 'extort' | 'contract';
+  kind: 'corner' | 'guard' | 'takeover' | 'extort' | 'contract' | 'work';
   target: number;
   max: number;
   selected: number[];
@@ -40,13 +44,24 @@ interface Picker {
 const ui = {
   modal: null as Modal,
   crewTab: 'roster' as 'roster' | 'hire',
-  salTab: 'sal' as 'sal' | 'marina',
-  order: { green: 0, candy: 0, snow: 0 } as Record<ProductId, number>,
+  salTab: 'sal' as 'sal' | 'marina' | 'stash',
+  order: {} as Order,
   openMsg: -1,
   picker: null as Picker | null,
   upgradeFocus: '',
   over: false,
 };
+
+/** Coloured item chip, e.g. "8 WET BUD". */
+function chip(item: ItemId, n?: number) {
+  return `<span class="ichip" style="--ic:${ITEMS[item].css}">${n !== undefined ? `<b>${n}</b> ` : ''}${ITEMS[item].name.toUpperCase()}</span>`;
+}
+
+function recipeLine(r: { in: Partial<Record<ItemId, number>>; out: Partial<Record<ItemId, number>> }) {
+  const ins = (Object.entries(r.in) as [ItemId, number][]).map(([k, n]) => chip(k, n)).join(' + ');
+  const outs = (Object.entries(r.out) as [ItemId, number][]).map(([k, n]) => chip(k, n)).join(' + ');
+  return `<div class="recipe">${ins} <i>&gt;&gt;</i> ${outs}</div>`;
+}
 
 function seg(v: number, max = 10, col = 'var(--pink)') {
   let s = '<span class="seg">';
@@ -75,6 +90,8 @@ export function initUI() {
   bus.on('report', showReport);
   bus.on('alarm', () => { const a = $('alarm'); a.classList.remove('on'); void a.offsetWidth; a.classList.add('on'); });
   bus.on('select', () => { ui.picker = null; render(); });
+  bus.on('placing', render);
+  bus.on('stepdone', () => { sfx('win'); const o = $('objective'); o.classList.remove('flash'); void o.offsetWidth; o.classList.add('flash'); });
   bus.on('changed', render);
   bus.on('scene', () => { ui.picker = null; ui.modal = null; render(); });
   bus.on('saved', () => addToast('SAVED.', 'info'));
@@ -97,6 +114,8 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === 'c' || e.key === 'C') toggle('crew');
   else if (e.key === 'Tab') { e.preventDefault(); toggle('city'); }
   else if (e.key === 'm' || e.key === 'M') setMusic(!audio.music);
+  else if (e.key === 'b' || e.key === 'B') toggle('sal');
+  else if (e.key === 'r' || e.key === 'R') toggle('recipes');
   else if (e.key === 'Escape') {
     if (ui.picker) ui.picker = null;
     else if (ui.modal) ui.modal = null;
@@ -134,7 +153,7 @@ function renderTop() {
     <div class="logo-sm">Neon Kingpin</div>
     <div class="st"><small>DIRTY</small><b class="dirty">${money(state.dirty)}</b></div>
     <div class="st"><small>CLEAN</small><b class="clean">${money(state.clean)}</b></div>
-    <div class="st prod"><small>STASH ${tot}/${cap}</small><b>${PRODUCT_IDS.map((p) => `<span style="color:${PRODUCTS[p].css}">${PRODUCTS[p].name[0]}${state.stash[p]}</span>`).join(' ')}</b></div>
+    <div class="st prod" data-a="modal" data-v="sal" data-tab="stash"><small>STASH ${tot}/${cap}</small><b>${PRODUCT_IDS.filter((p) => state.stash[p] > 0).map((p) => `<span class="pd" style="--ic:${ITEMS[p].css}" title="${ITEMS[p].name}">${ITEMS[p].short} ${state.stash[p]}</span>`).join('') || '<span class="dim">NO PRODUCT</span>'}</b></div>
     <div class="st"><small>TURF</small><b>${playerBlocks().length}<span class="dim">/30</span></b></div>
     <div class="st"><small>WANTED</small><b class="stars">${starsHtml()}</b></div>
     <div class="grow"></div>
@@ -143,7 +162,8 @@ function renderTop() {
   `);
   set('menu', `
     <button class="mb ${ui.modal === 'phone' ? 'on' : ''}" data-a="modal" data-v="phone">PHONE${unr ? `<em class="led">${unr}</em>` : ''}<kbd>P</kbd></button>
-    <button class="mb ${ui.modal === 'sal' ? 'on' : ''}" data-a="modal" data-v="sal">BUY PRODUCT</button>
+    <button class="mb ${ui.modal === 'sal' ? 'on' : ''}" data-a="modal" data-v="sal">SUPPLIES<kbd>B</kbd></button>
+    <button class="mb ${ui.modal === 'recipes' ? 'on' : ''}" data-a="modal" data-v="recipes">RECIPES<kbd>R</kbd></button>
     <button class="mb ${ui.modal === 'crew' ? 'on' : ''}" data-a="modal" data-v="crew">CREW ${state.goons.length}<kbd>C</kbd></button>
     <button class="mb ${ui.modal === 'city' ? 'on' : ''}" data-a="modal" data-v="city">THE CITY<kbd>TAB</kbd></button>
     <button class="mb sm ${ui.modal === 'help' ? 'on' : ''}" data-a="modal" data-v="help">?</button>
@@ -151,10 +171,63 @@ function renderTop() {
   `);
 }
 
+let tutTarget = '';
+
 function renderObjective() {
-  const idx = OBJECTIVES.findIndex((o) => !state.objectives.includes(o.id));
-  if (idx < 0) return set('objective', `<div class="obj"><h4>KINGPIN</h4><p>Miami is yours. Enjoy the view.</p></div>`);
-  set('objective', `<div class="obj"><h4>${String(idx + 1).padStart(2, '0')} / ${OBJECTIVES.length}</h4><p>${OBJECTIVES[idx].text}</p></div>`);
+  const s = currentStep();
+  if (!s) return set('objective', `<div class="obj"><h4>Kingpin</h4><p>Miami is yours. Enjoy the view.</p></div>`);
+  const idx = STEPS.indexOf(s);
+  const tut = idx < TUTORIAL_LEN;
+  const head = tut ? `TUTORIAL ${idx + 1}/${TUTORIAL_LEN}` : `GOAL ${idx - TUTORIAL_LEN + 1}/${STEPS.length - TUTORIAL_LEN}`;
+  set('objective', `<div class="obj ${tut ? 'tut' : ''}">
+    <h4>${head}</h4>
+    <p class="ot">${s.title}</p>
+    <p class="od">${s.text}</p>
+    <div class="ob">${s.action ? `<button class="btn gold" data-a="tutAct">${s.action}</button>` : ''}${tut ? '<button class="btn tiny" data-a="tutSkip">SKIP TUTORIAL</button>' : ''}</div>
+    ${tut ? `<div class="opips">${STEPS.slice(0, TUTORIAL_LEN).map((_, i) => `<i class="${i < idx ? 'd' : i === idx ? 'c' : ''}"></i>`).join('')}</div>` : ''}
+  </div>`);
+  // pulse the element the current step is about
+  document.querySelectorAll('.tut-glow').forEach((el) => el.classList.remove('tut-glow'));
+  tutTarget = tut || s.target ? s.target ?? '' : '';
+  if (tutTarget) document.querySelectorAll(tutTarget).forEach((el) => el.classList.add('tut-glow'));
+}
+
+/** SHOW ME: take the player to wherever the current step happens. */
+function tutAction() {
+  const s = currentStep();
+  if (!s) return;
+  const hq = map.starterLot;
+  const goHQ = () => { if (view.scene !== 'interior' || view.lot !== hq) bus.emit('enter', hq); };
+  const place = (t: StationId) => { goHQ(); view.placing = t; bus.emit('placing'); };
+  const has = (t: StationId) => Object.values(state.biz).some((b) => b.stations.some((x) => x.type === t));
+  switch (s.id) {
+    case 'enter': goHQ(); break;
+    case 'tent': place('tent'); break;
+    case 'dry': place(has('rack') ? 'trim' : 'rack'); break;
+    case 'worker': goHQ(); window.setTimeout(() => { ui.picker = { kind: 'work', target: hq, max: 2, selected: [] }; render(); }, 30); break;
+    case 'seeds': ui.salTab = 'sal'; ui.order = { seeds: 5, soil: 5 }; ui.modal = 'sal'; break;
+    case 'harvest': view.speed = 4; break;
+    case 'corner': {
+      if (view.scene === 'interior') bus.emit('exit');
+      const b = map.lots[hq].block;
+      view.selection = { type: 'block', id: b };
+      bus.emit('focus', { x: (map.blocks[b].x + 5) * TILE, y: (map.blocks[b].y + 5) * TILE });
+      bus.emit('select');
+      break;
+    }
+    case 'shine': place(has('barrel') ? 'still' : 'barrel'); break;
+    case 'take': {
+      if (view.scene === 'interior') bus.emit('exit');
+      const target = map.blocks.find((b) => state.turf[b.id].owner !== 0 && adjacentToPlayer(b.id));
+      if (!target) break;
+      view.selection = { type: 'block', id: target.id };
+      bus.emit('focus', { x: (target.x + 5) * TILE, y: (target.y + 5) * TILE });
+      bus.emit('select');
+      break;
+    }
+    case 'meth': place(has('reactor') ? 'trays' : 'reactor'); break;
+  }
+  render();
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +243,10 @@ function renderPanel() {
     else if (s?.type === 'lot') html = lotPanel(s.id);
     else if (s?.type === 'goon') html = goonPanel(s.id);
   }
-  if (view.selection?.type === 'goon' && view.scene === 'interior' && !ui.picker) html = goonPanel(view.selection.id) || html;
+  if (view.scene === 'interior' && !ui.picker) {
+    if (view.selection?.type === 'goon') html = goonPanel(view.selection.id) || html;
+    else if (view.selection?.type === 'station' && view.lot !== null) html = stationPanel(view.lot, view.selection.id) || html;
+  }
   $('panel').classList.toggle('hidden', !html);
   if (document.activeElement?.closest('#panel')?.tagName === 'INPUT') return;
   set('panel', html);
@@ -190,7 +266,7 @@ function blockPanel(id: number) {
   const t = state.turf[id];
   const d = DISTRICTS[b.district];
   const lots = map.lots.filter((l) => l.block === id && l.kind !== 'decor');
-  const guards = guardsOn(id);
+  const guards = guardsOn(id).filter((g) => g.post?.kind !== 'work');
   const def = blockDefense(id);
   const attack = state.ops.find((o) => o.kind === 'attack' && o.block === id && o.phase === 'work');
   const takeover = state.ops.find((o) => o.kind === 'takeover' && o.block === id);
@@ -198,7 +274,7 @@ function blockPanel(id: number) {
   h += `<div class="kv"><span>CONTROLLED BY</span>${ownerTag(t.owner)}</div>`;
   h += `<div class="kv"><span>GRIP</span><b>${t.inf.toFixed(0)}%</b></div>${bar(t.inf / 100, t.owner >= 0 ? GANGS[t.owner].css : '#888')}`;
   h += `<div class="kv"><span>DEFENSE</span><b>${def.toFixed(1)}</b></div>`;
-  h += `<div class="kv"><span>BUYERS WANT</span><b>${PRODUCT_IDS.map((p) => `<span style="color:${PRODUCTS[p].css}">${PRODUCTS[p].name} ${d.demand[p] >= 1.3 ? '+++' : d.demand[p] >= 1 ? '++' : '+'}</span>`).join(' ')}</b></div>`;
+  h += `<div class="lbl">WHAT SELLS HERE</div><div class="demand">${[...PRODUCT_IDS].sort((a, b2) => d.demand[b2] - d.demand[a]).map((p) => `<span class="pd" style="--ic:${ITEMS[p].css}">${ITEMS[p].name.toUpperCase()} ${d.demand[p] >= 1.3 ? '+++' : d.demand[p] >= 1 ? '++' : '+'}</span>`).join('')}</div>`;
   if (attack) h += `<div class="alert">UNDER ATTACK BY ${GANGS[attack.gang].short}. SEND GUARDS NOW.</div>`;
   if (takeover) h += `<div class="alert y">YOUR CREW IS ${takeover.phase === 'work' ? 'FIGHTING FOR' : 'HEADING TO'} THIS BLOCK.</div>`;
   if (lots.length) {
@@ -264,7 +340,7 @@ function goonRow(g: Goon, actions = '') {
 function statusText(g: Goon) {
   switch (g.status) {
     case 'idle': return 'AT THE STASH HOUSE';
-    case 'posted': return `${g.post!.kind === 'corner' ? 'DEALING' : 'GUARDING'} · ${esc(map.blocks[g.post!.block].name)}${g.note && g.post!.kind === 'corner' ? ` · ${esc(g.note.toUpperCase())}` : ''}`;
+    case 'posted': return g.post!.kind === 'work' ? `COOKING · ${esc(map.lots[g.post!.lot!].name)}` : `${g.post!.kind === 'corner' ? 'DEALING' : 'GUARDING'} · ${esc(map.blocks[g.post!.block].name)}${g.note && g.post!.kind === 'corner' ? ` · ${esc(g.note.toUpperCase())}` : ''}`;
     case 'op': {
       const op = state.ops.find((o) => o.id === g.opId);
       const what = op ? { drop: 'ON THE WAY', takeover: 'TAKEOVER', extort: 'SHAKEDOWN', contract: 'RUNNING A JOB' }[op.kind as 'drop'] ?? 'BUSY' : 'BUSY';
@@ -300,8 +376,8 @@ function goonPanel(id: number) {
 
 function pickerPanel(pk: Picker) {
   const idle = state.goons.filter((g) => g.status === 'idle');
-  const titles = { corner: 'PICK A DEALER', guard: 'PICK GUARDS', takeover: 'PICK YOUR MUSCLE', extort: 'WHO DOES THE TALKING?', contract: 'WHO DRIVES?' };
-  const where = pk.kind === 'extort' ? map.lots[pk.target].name : pk.kind === 'contract' ? 'The package job' : map.blocks[pk.target].name;
+  const titles = { corner: 'PICK A DEALER', guard: 'PICK GUARDS', takeover: 'PICK YOUR MUSCLE', extort: 'WHO DOES THE TALKING?', contract: 'WHO DRIVES?', work: 'WHO WORKS HERE?' };
+  const where = pk.kind === 'extort' || pk.kind === 'work' ? map.lots[pk.target].name : pk.kind === 'contract' ? 'The package job' : map.blocks[pk.target].name;
   let h = `<button class="x" data-a="cancelPick">X</button><div class="ph"><span class="tag" style="background:var(--yellow)">${pk.kind.toUpperCase()}</span><h2>${titles[pk.kind]}</h2><p class="sub">${esc(where)}</p></div>`;
   if (!idle.length) h += `<p class="hint">Nobody is free. Recall someone, wait for the hurt to heal, or hire more crew.</p><div class="btns"><button class="btn" data-a="modal" data-v="crew">HIRE CREW</button></div>`;
   for (const g of idle) {
@@ -328,7 +404,26 @@ function interiorPanel(id: number) {
   const st = state.biz[id];
   if (!st) return '';
   const fx = bizFx(id)!;
+  const prod = canProduce(id);
   let h = `<div class="ph"><span class="tag" style="background:var(--cyan)">${def.name.toUpperCase()}</span><h2>${esc(l.name)}</h2><p class="sub">${def.perk}</p></div>`;
+  if (prod) {
+    const workers = workersAt(id);
+    const cap = workers.length * STATIONS_PER_WORKER;
+    h += `<div class="lbl">WORKERS ${workers.length} <span class="dim">· RUNS ${cap} OF ${st.stations.length} STATIONS</span></div>`;
+    for (const g of workers) h += goonRow(g, `<button class="btn tiny" data-a="recall" data-id="${g.id}">SEND HOME</button>`);
+    if (!workers.length || st.stations.some((s) => s.status === 'nostaff')) h += `<p class="hint r">${workers.length ? 'Not enough hands. ' : 'Nobody works here yet. '}Each worker keeps ${STATIONS_PER_WORKER} stations busy.</p>`;
+    h += `<div class="btns"><button class="btn alt" data-a="pick" data-k="work" data-id="${id}">+ ASSIGN WORKER</button></div>`;
+    h += `<div class="lbl">STATIONS</div>`;
+    if (!st.stations.length) h += `<p class="hint">Empty room. Pick something from the build bar below and click the floor.</p>`;
+    st.stations.forEach((s) => {
+      const d = STATIONS[s.type];
+      const r = d.recipes[s.recipe];
+      h += `<div class="strow ${s.status}" data-a="selStation" data-id="${s.id}">
+        <div><b>${d.name}</b><small>${r.name.toUpperCase()} · <span class="${s.status === 'running' ? 'g' : s.status === 'idle' ? '' : 'r'}">${stationStatus(s)}</span></small></div>
+        ${s.loaded ? `<span class="pct">${Math.floor(s.progress * 100)}%</span>` : ''}
+      </div>`;
+    });
+  }
   if (def.income) h += `<div class="kv"><span>INCOME</span><b>${money(def.income * fx.income)}/day</b></div>`;
   if (fx.launder) h += `<div class="kv"><span>LAUNDERS</span><b>${money(fx.launder)}/day</b></div>`;
   if (fx.stash) h += `<div class="kv"><span>STASH SPACE</span><b>${fx.stash}</b></div>`;
@@ -341,7 +436,31 @@ function interiorPanel(id: number) {
       ${has ? '<span class="y">INSTALLED</span>' : `<button class="btn tiny gold" data-a="upgrade" data-v="${u.id}" ${state.dirty >= u.cost ? '' : 'disabled'}>${money(u.cost)}</button>`}
     </div>`;
   }
-  h += `<p class="hint">Upgrades are paid with dirty cash. Blinking squares in the room are empty upgrade spots.</p>`;
+  return h;
+}
+
+function stationPanel(lotId: number, stId: number) {
+  const s = findStation(lotId, stId);
+  if (!s) return '';
+  const d = STATIONS[s.type];
+  const r = d.recipes[s.recipe];
+  let h = head('STATION', d.name, d.desc, 'var(--yellow)');
+  h += `<div class="kv"><span>STATUS</span><b class="${s.status === 'running' ? 'g' : s.status === 'idle' ? '' : 'r'}">${stationStatus(s)}</b></div>`;
+  if (s.loaded) h += bar(s.progress, 'var(--green)');
+  if (d.recipes.length > 1) {
+    h += `<div class="lbl">RECIPE</div><div class="chips">${d.recipes.map((rc, i) => `<button class="chip ${i === s.recipe ? 'on' : ''}" data-a="recipe" data-id="${s.id}" data-v="${i}">${rc.name.toUpperCase()}</button>`).join('')}</div>`;
+  }
+  h += `<div class="lbl">MAKES (${Math.round(r.time / 60 * 10) / 10}H PER BATCH)</div>${recipeLine(r)}`;
+  const missing = (Object.entries(r.in) as [ItemId, number][]).filter(([k, n]) => state.stash[k] < n);
+  if (!s.loaded && missing.length) {
+    h += `<p class="hint r">Missing: ${missing.map(([k, n]) => `${n - state.stash[k]} ${ITEMS[k].name}`).join(', ')}.</p>`;
+    const buyable = missing.filter(([k]) => ITEMS[k].price);
+    if (buyable.length) h += `<div class="btns"><button class="btn gold" data-a="quickBuy" data-v="${buyable.map(([k]) => k).join(',')}">ORDER FROM SAL</button></div>`;
+    else h += `<p class="hint">Another station makes those. Check RECIPES.</p>`;
+  }
+  if (s.status === 'nostaff') h += `<p class="hint r">Nobody is running this. Assign another worker.</p>`;
+  if (s.status === 'full') h += `<p class="hint r">The stash is full. Sell product or buy storage.</p>`;
+  h += `<div class="btns"><button class="btn tiny danger" data-a="sellStation" data-id="${s.id}">SELL ${money(d.cost * 0.5)}</button></div>`;
   return h;
 }
 
@@ -359,6 +478,7 @@ function renderModal() {
   else if (m === 'city') h = cityModal();
   else if (m === 'help') h = helpModal();
   else if (m === 'options') h = optionsModal();
+  else if (m === 'recipes') h = recipesModal();
   set('modal', `<div class="mwin ${m}"><button class="x" data-a="closeModal">X</button>${h}</div>`);
 }
 
@@ -380,25 +500,62 @@ function phoneModal() {
 
 function salModal() {
   const ownsMarina = state.biz[map.marinaLot]?.mode === 'owned' && bizActive(map.marinaLot);
-  const tab = (id: 'sal' | 'marina', label: string, ok = true) => `<button class="tab ${ui.salTab === id ? 'on' : ''}" data-a="salTab" data-v="${id}" ${ok ? '' : 'disabled'}>${label}</button>`;
+  const tab = (id: typeof ui.salTab, label: string, ok = true) => `<button class="tab ${ui.salTab === id ? 'on' : ''}" data-a="salTab" data-v="${id}" ${ok ? '' : 'disabled'}>${label}</button>`;
+  let h = `<h1 class="mt">${ui.salTab === 'stash' ? 'Your stash' : ui.salTab === 'marina' ? 'Import by sea' : 'Call Sal'}</h1>`;
+  h += `<div class="tabs">${tab('sal', 'SAL (VAN)')}${tab('marina', ownsMarina ? 'MARINA (BOAT)' : 'MARINA (LOCKED)', ownsMarina)}${tab('stash', `STASH ${stashTotal()}/${stashCap()}`)}</div>`;
+  if (ui.salTab === 'stash') return h + stashTab();
   const marina = ui.salTab === 'marina' && ownsMarina;
-  const price = (p: ProductId) => (marina ? PRODUCTS[p].marina : PRODUCTS[p].sal);
+  const list = marina ? (['cocaleaf', 'opium'] as SupplyId[]) : SUPPLY_IDS;
   const free = stashCap() - stashTotal();
-  const qty = PRODUCT_IDS.reduce((a, p) => a + ui.order[p], 0);
-  const cost = PRODUCT_IDS.reduce((a, p) => a + ui.order[p] * price(p), 0);
-  let h = `<h1 class="mt">${marina ? 'IMPORT BY SEA' : 'CALL SAL'}</h1>`;
-  h += `<div class="tabs">${tab('sal', 'SAL (VAN)')}${tab('marina', ownsMarina ? 'MARINA (BOAT)' : 'MARINA (LOCKED)', ownsMarina)}</div>`;
-  h += `<p class="sub">${marina ? 'A boat brings it in from the Bahamas, then a van drives it to your nearest stash. Cheap, but the Coast Guard is out there.' : 'Sal\'s van drives in from the highway. If the cops pull it over, the load is gone.'}</p>`;
-  for (const p of PRODUCT_IDS) {
-    const d = PRODUCTS[p];
-    h += `<div class="ord"><div><b style="color:${d.css}">${d.name.toUpperCase()}</b><small>${d.desc} SELLS ~${money(d.sell)}</small></div>
-      <span class="pr">${money(price(p))}</span>
-      <button class="btn tiny" data-a="qty" data-p="${p}" data-v="-10">-10</button><b class="q">${ui.order[p]}</b><button class="btn tiny" data-a="qty" data-p="${p}" data-v="10">+10</button></div>`;
+  const order: Order = {};
+  for (const s of list) if (ui.order[s]) order[s] = ui.order[s];
+  const qty = list.reduce((a, s) => a + (ui.order[s] ?? 0), 0);
+  const cost = orderCost(order, marina);
+  h += `<p class="sub">${marina ? 'A boat brings it in from the Bahamas. Cheap, but the Coast Guard is out there.' : 'Sal\'s van drives your supplies in from the highway. If the cops pull it over, the load is gone.'}</p>`;
+  for (const s of list) {
+    const d = ITEMS[s];
+    const uses = CHAINS.filter((c) => c.supplies.includes(s)).map((c) => ITEMS[c.product].name).join(', ');
+    const n = ui.order[s] ?? 0;
+    h += `<div class="ord"><div><b style="color:${d.css}">${d.name.toUpperCase()}</b><small>FOR ${uses.toUpperCase()} · HAVE ${state.stash[s]}</small></div>
+      <span class="pr">${money(marina ? d.marina! : d.price!)}</span>
+      <button class="btn tiny" data-a="qty" data-p="${s}" data-v="${-d.step!}">-</button><b class="q">${n}</b><button class="btn tiny" data-a="qty" data-p="${s}" data-v="${d.step}">+</button></div>`;
   }
   h += `<div class="kv"><span>STASH SPACE FREE</span><b class="${qty > free ? 'r' : ''}">${free}</b></div>`;
-  h += `<div class="kv"><span>TOTAL (DIRTY)</span><b>${money(cost)}</b></div>`;
-  if (qty > free) h += `<p class="hint r">That won't fit. Extra product will get dumped.</p>`;
-  h += `<div class="btns"><button class="btn gold big" data-a="order" ${qty && state.dirty >= cost ? '' : 'disabled'}>${marina ? 'SEND THE BOAT' : 'PLACE ORDER'}</button></div>`;
+  h += `<div class="kv"><span>TOTAL</span><b>${money(cost)}</b></div>`;
+  if (qty > free) h += `<p class="hint r">That won't fit. The extra gets dumped.</p>`;
+  h += `<div class="btns"><button class="btn gold big" data-a="order" ${qty && state.dirty + state.clean >= cost ? '' : 'disabled'}>${marina ? 'SEND THE BOAT' : 'PLACE ORDER'}</button></div>`;
+  return h;
+}
+
+function stashTab() {
+  const group = (title: string, ids: ItemId[]) => {
+    const have = ids.filter((k) => state.stash[k] > 0);
+    return `<div class="lbl">${title}</div><div class="demand">${have.length ? have.map((k) => chip(k, state.stash[k])).join('') : '<span class="dim">NOTHING</span>'}</div>`;
+  };
+  let h = group('PRODUCT (READY TO SELL)', PRODUCT_IDS);
+  h += group('IN PROGRESS', MID_IDS);
+  h += group('SUPPLIES', SUPPLY_IDS);
+  const worth = PRODUCT_IDS.reduce((a, p) => a + state.stash[p] * ITEMS[p].sell!, 0);
+  h += `<div class="kv"><span>STREET VALUE</span><b class="g">${money(worth)}</b></div>`;
+  h += `<p class="hint">Corner dealers sell anything in the PRODUCT row. Different districts want different stuff.</p>`;
+  return h;
+}
+
+/** Which recipe a multi-recipe station (lab bench, refinery) uses for a product. */
+const MULTI_RECIPE: Partial<Record<string, number>> = { meth: 0, mdma: 1, lsd: 2, cocaine: 0, heroin: 1 };
+
+function recipesModal() {
+  let h = `<h1 class="mt">Recipes</h1><p class="sub">Every product, start to finish. Build the stations in a stash house, warehouse or motel, assign workers, keep supplies coming.</p>`;
+  for (const c of CHAINS) {
+    const p = ITEMS[c.product];
+    h += `<div class="chain" style="--ic:${p.css}"><div class="ch"><b>${p.name.toUpperCase()}</b><small>SELLS ~${money(p.sell!)} · HEAT ${'!'.repeat(Math.max(1, Math.round(p.heat! * 5)))}</small></div>`;
+    for (const sid of c.steps) {
+      const d = STATIONS[sid];
+      const r = d.recipes.length > 1 ? d.recipes[MULTI_RECIPE[c.product] ?? 0] : d.recipes[0];
+      h += `<div class="cstep"><span class="sn">${d.name.toUpperCase()} <small>${money(d.cost)}</small></span>${recipeLine(r)}</div>`;
+    }
+    h += `</div>`;
+  }
   return h;
 }
 
@@ -447,10 +604,13 @@ function cityModal() {
 function helpModal() {
   return `<h1 class="mt">HOW IT WORKS</h1><div class="help">
   <p><b class="y">THE CITY.</b> Miami is cut into 30 blocks. Three gangs hold turf: <b style="color:${GANGS[1].css}">LOS FLAMINGOS</b> in Little Havana, <b style="color:${GANGS[2].css}">THE BARRACUDAS</b> Downtown and the <b style="color:${GANGS[3].css}">TIGER MOB</b> on Ocean Drive. You start with one block in Palmetto Flats.</p>
-  <p><b class="y">CORNERS.</b> Click your block and post a dealer. Dealers sell product from your stash for dirty cash. Run dry? Buy more from Sal.</p>
+  <p><b class="y">COOKING.</b> Go inside a stash house, warehouse or motel and build stations. Each product has a chain: weed is Grow Tent, Drying Rack, Trim Table. Check RECIPES for all seven.</p>
+  <p><b class="y">WORKERS.</b> Stations only run with crew assigned. One worker runs two stations. Smarter workers are faster.</p>
+  <p><b class="y">SUPPLIES.</b> Seeds, mash kits, lab chemicals and the rest come from Sal. Own the Marina to import coca leaves and raw opium cheaply.</p>
+  <p><b class="y">CORNERS.</b> Click your block and post a dealer. Dealers sell finished product from your stash for dirty cash. Each district wants different stuff.</p>
   <p><b class="y">TURF.</b> Click a block next to yours and send muscle to take it. Rivals will hit back, so post guards. Guards raise your grip on a block.</p>
   <p><b class="y">BUSINESSES.</b> On your turf you can buy businesses with clean money or shake them down for protection. Fronts launder dirty cash into clean.</p>
-  <p><b class="y">HEAT.</b> Every deal and every fight raises your wanted level. Pay off the cops, own a diner, or cool it.</p>
+  <p><b class="y">HEAT.</b> Every deal, fight and running lab raises your wanted level. Labs and refineries are loud. Pay off the cops, own a diner, or cool it.</p>
   <p><b class="y">PHONE.</b> People call with jobs, deals and threats. Check your messages.</p>
   <p><b class="y">CONTROLS.</b> Drag / WASD to move. Wheel or Q/E to zoom. Double-click a business you own to go inside. SPACE pause, 1/2/3 speed, P phone, C crew, TAB city.</p></div>`;
 }
@@ -466,11 +626,25 @@ function optionsModal() {
 
 // ---------------------------------------------------------------------------
 
+const STATION_ICON: Record<StationId, string> = {
+  tent: 'WE', rack: 'WE', trim: 'WE', barrel: 'MS', still: 'MS', reactor: 'LAB', trays: 'ME', press: 'XT', blotter: 'LD', pit: 'CO', boiler: 'HE', refinery: 'CO/HE',
+};
+
 function renderBottom() {
-  const hint = view.scene === 'interior'
-    ? `<button class="btn" data-a="exit">&lt; BACK TO THE STREET</button><span>ESC TO LEAVE</span>`
-    : `<span>DRAG TO MOVE · WHEEL TO ZOOM · CLICK A BLOCK OR BUSINESS</span>`;
-  set('bottom', hint);
+  const inside = view.scene === 'interior' && view.lot !== null;
+  $('bottom').classList.toggle('build', inside && canProduce(view.lot!));
+  if (!inside) return set('bottom', `<span>DRAG TO MOVE · WHEEL TO ZOOM · CLICK A BLOCK OR BUSINESS</span>`);
+  let h = `<button class="btn" data-a="exit">&lt; STREET</button>`;
+  if (canProduce(view.lot!)) {
+    const cash = state.dirty + state.clean;
+    h += `<div class="buildbar">${STATION_IDS.map((t) => {
+      const d = STATIONS[t];
+      return `<button class="bt ${view.placing === t ? 'on' : ''}" data-a="place" data-v="${t}" ${cash >= d.cost ? '' : 'disabled'} title="${esc(d.desc)}">
+        <span class="bi" style="--ic:${ITEMS[CHAINS.find((c) => c.steps.includes(t))!.product].css}">${STATION_ICON[t]}</span><b>${d.name.toUpperCase()}</b><small>${money(d.cost)}</small></button>`;
+    }).join('')}</div>`;
+    if (view.placing) h += `<div class="placing">PLACING ${STATIONS[view.placing].name.toUpperCase()}: CLICK THE FLOOR · RIGHT-CLICK / ESC TO STOP</div>`;
+  } else h += `<span>ESC TO LEAVE</span>`;
+  set('bottom', h);
 }
 
 function renderOver() {
@@ -493,7 +667,7 @@ function onClick(e: MouseEvent) {
   const v = el.dataset.v!;
   switch (a) {
     case 'speed': view.speed = Number(v); break;
-    case 'modal': toggle(v as Modal); if (ui.modal === 'phone') markRead(); break;
+    case 'modal': toggle(v as Modal); if (ui.modal === 'phone') markRead(); if (ui.modal === 'sal' && el.dataset.tab) ui.salTab = el.dataset.tab as typeof ui.salTab; break;
     case 'closeModal': ui.modal = null; break;
     case 'close': view.selection = null; bus.emit('select'); break;
     case 'selLot': view.selection = { type: 'lot', id }; bus.emit('select'); break;
@@ -517,7 +691,7 @@ function onClick(e: MouseEvent) {
     case 'recall': recall(id); break;
     case 'pick': {
       const k = el.dataset.k as Picker['kind'];
-      const max = k === 'corner' ? 1 : k === 'guard' ? 3 : k === 'takeover' ? 4 : 2;
+      const max = k === 'corner' ? 1 : k === 'guard' ? 3 : k === 'takeover' ? 4 : k === 'work' ? 4 : 2;
       ui.picker = { kind: k, target: id, max, selected: [] };
       break;
     }
@@ -533,6 +707,7 @@ function onClick(e: MouseEvent) {
       const pk = ui.picker!;
       let ok = false;
       if (pk.kind === 'corner' || pk.kind === 'guard') ok = sendPost(pk.selected, pk.target, pk.kind);
+      else if (pk.kind === 'work') ok = sendToWork(pk.selected, pk.target);
       else if (pk.kind === 'takeover') ok = startTakeover(pk.selected, pk.target);
       else if (pk.kind === 'extort') ok = startExtort(pk.selected, pk.target);
       else if (pk.kind === 'contract') {
@@ -552,13 +727,13 @@ function onClick(e: MouseEvent) {
     case 'crewTab': ui.crewTab = v as typeof ui.crewTab; break;
     case 'salTab': ui.salTab = v as typeof ui.salTab; break;
     case 'qty': {
-      const p = el.dataset.p as ProductId;
-      ui.order[p] = Math.max(0, ui.order[p] + Number(v));
+      const p = el.dataset.p as SupplyId;
+      ui.order[p] = Math.max(0, (ui.order[p] ?? 0) + Number(v));
       break;
     }
     case 'order': {
       const ok = ui.salTab === 'marina' ? importShipment({ ...ui.order }) : orderSal();
-      if (ok) { ui.order = { green: 0, candy: 0, snow: 0 }; ui.modal = null; }
+      if (ok) { ui.order = {}; ui.modal = null; }
       break;
     }
     case 'openMsg': {
@@ -580,6 +755,13 @@ function onClick(e: MouseEvent) {
     case 'optWobble': view.wobble = !view.wobble; break;
     case 'optMusic': setMusic(!audio.music); break;
     case 'closeReport': $('report').classList.add('hidden'); break;
+    case 'tutAct': tutAction(); return;
+    case 'tutSkip': skipTutorial(); break;
+    case 'place': view.placing = view.placing === v ? null : (v as StationId); ui.picker = null; bus.emit('placing'); break;
+    case 'selStation': view.selection = { type: 'station', id }; ui.picker = null; break;
+    case 'recipe': if (view.lot !== null) setRecipe(view.lot, id, Number(v)); break;
+    case 'sellStation': if (view.lot !== null && confirm('Sell this station for half price?')) { removeStation(view.lot, id); view.selection = null; } break;
+    case 'quickBuy': { const o: Order = {}; for (const k of v.split(',') as SupplyId[]) o[k] = ITEMS[k].step! * 2; ui.order = o; ui.salTab = 'sal'; ui.modal = 'sal'; break; }
     case 'optSfx': setSfx(!audio.sfx); break;
     case 'save': if (saveGame()) addToast('SAVED.', 'info'); break;
     case 'quit': location.reload(); return;

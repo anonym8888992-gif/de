@@ -147,6 +147,7 @@ export function generateSprites(scene: Phaser.Scene) {
   glow(scene, 'glow_white', 'rgba(255,250,240,1)');
 
   generateFurniture(scene);
+  generateStations(scene);
 }
 
 function glow(scene: Phaser.Scene, key: string, color: string) {
@@ -441,4 +442,170 @@ function generateFurniture(scene: Phaser.Scene) {
     p.rect(7, 4, 2, 8, NEON.yellow);
     p.rect(4, 7, 8, 2, NEON.yellow);
   }, false);
+}
+
+// ---------------------------------------------------------------------------
+// production stations (ITILE = 16px grid, sizes = station w/h * 16)
+
+const STEEL = 0xb8c0cc;
+const STEEL_D = 0x6a7280;
+const WOOD = 0x9a5a2a;
+const WOOD_D = 0x5a3014;
+const COPPER = 0xd8803a;
+
+export function generateStations(scene: Phaser.Scene) {
+  mk(scene, 'st_tent', 32, 32, (p) => {
+    p.rect(0, 0, 32, 32, 0x1a1a22);
+    p.rect(2, 2, 28, 28, 0xd8dce8);
+    for (let k = 3; k < 29; k += 3) p.rect(k, 2, 1, 28, 0xf4f6fc);
+    p.rect(4, 4, 24, 24, 0x2a1a10);
+    for (const [x, y] of [[9, 9], [22, 9], [9, 22], [22, 22]]) { p.disc(x, y, 4.5, 0x1a1a1a); p.disc(x, y, 3.5, 0x6a4024); }
+    p.rect(14, 0, 4, 2, 0x3a3a46);
+  });
+  mk(scene, 'st_plants', 28, 28, (p) => {
+    for (const [x, y] of [[7, 7], [20, 7], [7, 20], [20, 20]]) {
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2;
+        for (let t = 1; t < 6; t++) p.set(x + Math.cos(a) * t, y + Math.sin(a) * t, t > 3 ? 0x7be06a : 0x2f9e44);
+      }
+      p.rect(x - 1, y - 1, 2, 2, 0x48c050);
+    }
+  }, false);
+  mk(scene, 'st_rack', 32, 16, (p) => {
+    p.rect(0, 0, 32, 16, WOOD_D);
+    p.rect(1, 1, 30, 14, 0x2a1a24);
+    for (let y = 3; y < 15; y += 4) p.rect(1, y, 30, 1, 0xd8d0c0);
+    p.rect(0, 0, 2, 16, WOOD);
+    p.rect(30, 0, 2, 16, WOOD);
+  });
+  mk(scene, 'st_rack_full', 28, 14, (p) => {
+    for (let y = 1; y < 13; y += 4) for (let x = 1; x < 27; x += 4) { p.disc(x + 1, y + 1, 1.6, 0x48b048); p.set(x + 1, y, 0x8ae070); }
+  }, false);
+  mk(scene, 'st_trim', 32, 16, (p) => {
+    p.rect(0, 0, 32, 16, WOOD_D);
+    p.rect(1, 1, 30, 14, 0xc89058);
+    p.rect(3, 3, 9, 8, STEEL);
+    p.rect(4, 8, 7, 2, 0x1a3a4a);
+    p.rect(5, 8, 4, 1, NEON.green);
+    for (const [x, y] of [[16, 3], [21, 6], [26, 3], [17, 10], [24, 10]]) { p.rect(x, y, 4, 4, 0xf4f8ff); p.rect(x + 1, y + 2, 2, 2, 0x58c050); }
+    p.line(13, 12, 15, 5, STEEL_D);
+  });
+  mk(scene, 'st_barrel', 16, 16, (p) => {
+    p.disc(8, 8, 7.5, WOOD_D);
+    p.disc(8, 8, 6.5, WOOD);
+    for (let k = -6; k <= 6; k += 3) p.rect(8 + k, 2, 1, 12, WOOD_D);
+    p.disc(8, 8, 4, 0xe0c060);
+    p.disc(8, 8, 2.5, 0xc8a040);
+    p.set(6, 6, 0xffffff);
+  });
+  mk(scene, 'st_still', 32, 32, (p) => {
+    p.rect(1, 1, 30, 30, 0x3a3440);
+    p.disc(12, 14, 10, 0x8a4a1a);
+    p.disc(12, 14, 9, COPPER);
+    p.disc(10, 12, 4, 0xf0a860);
+    p.disc(12, 14, 3, 0x8a4a1a);
+    for (let a = 0; a < 3; a++) { p.disc(25, 10 + a * 6, 3, 0x8a4a1a); p.disc(25, 10 + a * 6, 2, COPPER); }
+    p.line(20, 8, 25, 8, COPPER);
+    p.rect(22, 25, 6, 5, 0xe8f0f8);
+    p.rect(23, 26, 4, 3, 0xfff0b0);
+    p.disc(12, 27, 2.5, 0xff8a1f);
+  });
+  mk(scene, 'st_reactor', 48, 32, (p) => {
+    p.rect(0, 0, 48, 32, STEEL_D);
+    p.rect(1, 1, 46, 30, STEEL);
+    p.rect(1, 1, 46, 2, 0xe0e6f0);
+    p.disc(12, 16, 9, 0x2a2a32);
+    p.disc(12, 16, 7, 0x3a3a46);
+    p.disc(12, 16, 5, 0xe0f4ff);
+    p.disc(12, 16, 3.5, 0x9ff0ff);
+    p.line(18, 10, 28, 6, 0xe0f4ff);
+    p.line(28, 6, 36, 10, 0xe0f4ff);
+    for (const [x, y, c] of [[30, 16, 0x5ad8ff], [38, 12, 0xffe14d], [40, 22, 0xff6fd0], [30, 25, 0x7dff6a]] as [number, number, number][]) {
+      p.disc(x, y, 3.5, 0xffffff);
+      p.disc(x, y, 2.5, c);
+    }
+    p.rect(4, 27, 6, 3, 0xff3b3b);
+  });
+  mk(scene, 'st_trays', 32, 16, (p) => {
+    p.rect(0, 0, 32, 16, STEEL_D);
+    p.rect(1, 1, 14, 14, STEEL);
+    p.rect(17, 1, 14, 14, STEEL);
+    p.rect(3, 3, 10, 10, 0x8a92a0);
+    p.rect(19, 3, 10, 10, 0x8a92a0);
+  });
+  mk(scene, 'st_trays_full', 28, 12, (p) => {
+    for (const ox of [0, 16]) for (let i = 0; i < 9; i++) {
+      const x = ox + 1 + (i % 3) * 3.5;
+      const y = 1 + Math.floor(i / 3) * 3.5;
+      p.rect(x, y, 3, 3, 0x7fd8ff);
+      p.set(x, y, 0xe0f8ff);
+    }
+  }, false);
+  mk(scene, 'st_press', 16, 16, (p) => {
+    p.rect(0, 0, 16, 16, 0x3a3a46);
+    p.rect(1, 1, 14, 14, 0x8a92a0);
+    p.rect(4, 3, 8, 6, 0x5a6270);
+    p.rect(7, 0, 2, 4, 0xffe14d);
+    p.rect(3, 11, 10, 3, 0xffffff);
+    for (let x = 4; x < 13; x += 2) p.set(x, 12, 0xff6fd0);
+  });
+  mk(scene, 'st_blotter', 32, 16, (p) => {
+    p.rect(0, 0, 32, 16, WOOD_D);
+    p.rect(1, 1, 30, 14, 0xc89058);
+    p.rect(3, 2, 16, 12, 0xfff0f8);
+    for (let x = 3; x < 19; x += 2) p.rect(x, 2, 1, 12, 0xffd0e8);
+    for (let y = 2; y < 14; y += 2) p.rect(3, y, 16, 1, 0xffd0e8);
+    p.disc(11, 8, 3, 0xffe14d);
+    p.rect(22, 4, 3, 7, 0xe8e0ff);
+    p.rect(23, 2, 1, 2, 0x2a2a32);
+    p.rect(26, 9, 4, 4, STEEL);
+  });
+  mk(scene, 'st_pit', 32, 32, (p) => {
+    p.rect(0, 0, 32, 32, 0x6a6878);
+    p.rect(2, 2, 28, 28, 0x8a8898);
+    p.rect(5, 5, 22, 22, 0x2a3a1a);
+    p.rect(6, 6, 20, 20, 0x5a7a2a);
+    for (let i = 0; i < 18; i++) p.ellipse(8 + (i * 7) % 17, 8 + (i * 5) % 17, 2, 1, 0x3a8a3a);
+    p.rect(26, 26, 4, 4, 0xffe14d);
+  });
+  mk(scene, 'st_boiler', 16, 16, (p) => {
+    p.rect(0, 0, 16, 16, 0x2a2a32);
+    p.disc(8, 8, 7, 0x4a4a52);
+    p.disc(8, 8, 6, STEEL);
+    p.disc(8, 8, 4.5, 0x6a4020);
+    p.disc(7, 7, 2, 0x8a5a30);
+    p.rect(1, 7, 2, 2, STEEL_D);
+    p.rect(13, 7, 2, 2, STEEL_D);
+  });
+  mk(scene, 'st_refinery', 48, 32, (p) => {
+    p.rect(0, 0, 48, 32, 0x3a3a46);
+    p.rect(1, 1, 46, 30, 0x5a6270);
+    p.disc(10, 10, 7, STEEL_D);
+    p.disc(10, 10, 6, STEEL);
+    p.disc(10, 10, 2, 0x3a3a46);
+    p.disc(10, 23, 6, STEEL_D);
+    p.disc(10, 23, 5, STEEL);
+    p.rect(18, 6, 12, 20, 0x2a2a32);
+    p.rect(19, 7, 10, 18, 0x4a4a58);
+    p.rect(21, 14, 6, 4, 0xffe14d);
+    p.rect(33, 6, 12, 10, 0xe8e8f0);
+    p.rect(34, 7, 10, 8, 0xffffff);
+    p.rect(33, 19, 12, 9, WOOD);
+    p.rect(35, 21, 8, 5, 0xf4f4ff);
+    p.line(16, 10, 18, 10, STEEL);
+    p.line(16, 23, 18, 23, STEEL);
+  });
+  mk(scene, 'smoke', 10, 10, (p) => {
+    p.disc(5, 5, 4, 0xe8e0f0);
+    p.disc(4, 4, 2, 0xffffff);
+  }, false);
+  mk(scene, 'warn', 9, 9, (p) => {
+    p.rect(0, 0, 9, 9, NEON.red);
+    p.rect(4, 1, 1, 5, 0xffffff);
+    p.rect(4, 7, 1, 1, 0xffffff);
+  });
+  mk(scene, 'zzz', 9, 9, (p) => {
+    p.rect(0, 0, 9, 9, 0x3a3a46);
+    p.text('Z', 3, 2, NEON.cyan);
+  });
 }

@@ -1,5 +1,5 @@
 import { bus, toast } from '../bus';
-import { DAY, GANGS, PRODUCTS, PRODUCT_IDS, type ProductId } from '../config';
+import { DAY, GANGS, ITEMS, type SupplyId } from '../config';
 import { goonFrom, makeCandidate, map, money, nextId, playerBlocks, stars, state, type PhoneMsg, type PhoneOption } from '../state';
 import { pick, randInt } from './rng';
 import { bribe, orderFromSal } from './sim';
@@ -14,10 +14,10 @@ export function pushMsg(from: string, text: string, options: PhoneOption[] = [],
 
 export function introCalls() {
   pushMsg('UNCLE VIC (COUNTY JAIL)',
-    'Kid, it\'s Vic. They got me on a parking ticket, can you believe it? Two years. The place in Palmetto Flats is yours now. Sonny and Rico are good boys. Put somebody on the corner, call Sal when you run dry, and DON\'T let the Flamingos walk all over you.',
+    'Kid, it\'s Vic. They got me on a parking ticket, can you believe it? Two years. The place in Palmetto Flats is yours now. Sonny and Rico are good boys. My grow setup got seized, so start fresh: tents in the back room, Sal for supplies, the boys on the corner. And DON\'T let the Flamingos walk all over you.',
     [], 9999);
   pushMsg('SAL',
-    'Sal here. Vic\'s nephew, huh? You got cash, I got product. Hit the SAL button whenever. And kid, the Vice Squad drives around more when you get loud. Keep it quiet.',
+    'Sal here. Vic\'s nephew, huh? You need seeds, chemicals, whatever, I got it. Hit SUPPLIES whenever. And kid, the Vice Squad drives around more when you get loud. Keep it quiet.',
     [], 9999);
 }
 
@@ -60,11 +60,11 @@ function generate() {
     return;
   }
   if (roll < 0.75) {
-    const p = pick(PRODUCT_IDS) as ProductId;
-    const qty = randInt(2, 5) * 10;
-    const price = Math.round(PRODUCTS[p].sal * (0.55 + Math.random() * 0.15));
+    const p = pick(['chems', 'chems', 'cocaleaf', 'opium', 'culture', 'mashkit'] as SupplyId[]);
+    const qty = ITEMS[p].step! * randInt(3, 8);
+    const price = Math.max(1, Math.round(ITEMS[p].price! * (0.5 + Math.random() * 0.15)));
     pushMsg('SAL',
-      `Kid! A truck fell off another truck. I got ${qty} ${PRODUCTS[p].name} at ${money(price)} a pop. That's a steal. Literally. Today only.`,
+      `Kid! A truck fell off another truck. I got ${qty} ${ITEMS[p].name} at ${money(price)} each. That's a steal. Literally. Today only.`,
       [{ label: `BUY ${money(price * qty)}`, action: 'deal', data: { p, qty, price } }, { label: 'PASS', action: 'decline' }], 8);
     return;
   }
@@ -109,9 +109,9 @@ export function answer(msgId: number, optIdx: number): { pick?: 'contract'; data
       if (bribe(Number(d.cost), 40)) done();
       break;
     case 'deal': {
-      const order = { green: 0, candy: 0, snow: 0 } as Record<ProductId, number>;
-      order[d.p as ProductId] = Number(d.qty);
-      if (orderFromSal(order, { [d.p as ProductId]: Number(d.price) })) done();
+      const order: Partial<Record<SupplyId, number>> = {};
+      order[d.p as SupplyId] = Number(d.qty);
+      if (orderFromSal(order, { [d.p as SupplyId]: Number(d.price) })) done();
       break;
     }
     case 'truce': {

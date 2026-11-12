@@ -1,4 +1,4 @@
-import { BIZ, FIRST, GANGS, NICKS, PRODUCT_IDS, QUIRKS, type BizKind, type ProductId } from './config';
+import { BIZ, FIRST, GANGS, ITEM_IDS, NICKS, QUIRKS, type BizKind, type ItemId, type ProductId, type StationId } from './config';
 import { generateCity, type CityMap, type Pt } from './sim/cityMap';
 import { pick, randInt } from './sim/rng';
 
@@ -12,6 +12,7 @@ export interface Turf {
 export interface BizState {
   mode: 'owned' | 'extorted';
   upgrades: string[];
+  stations: Station[];
 }
 
 export type GoonStatus = 'idle' | 'posted' | 'op' | 'hurt' | 'jail';
@@ -28,7 +29,7 @@ export interface Goon {
   hp: number;
   look: number;
   status: GoonStatus;
-  post: { kind: 'corner' | 'guard'; block: number } | null;
+  post: { kind: 'corner' | 'guard' | 'work'; block: number; lot?: number } | null;
   opId: number | null;
   jailUntil: number;
   saleAcc: number;
@@ -73,9 +74,9 @@ export interface Op {
   balance: number;
   timer: number;
   vehicle: Vehicle | null;
-  cargo: Record<ProductId, number> | null;
+  cargo: Partial<Record<ItemId, number>> | null;
   reward: number;
-  postAs: 'corner' | 'guard' | null;
+  postAs: 'corner' | 'guard' | 'work' | null;
   legs: number[];
   power: number;
 }
@@ -113,7 +114,7 @@ export interface GameState {
   biz: Record<number, BizState>;
   goons: Goon[];
   ops: Op[];
-  stash: Record<ProductId, number>;
+  stash: Record<ItemId, number>;
   heat: number;
   bribes: number;
   gangs: GangState[];
@@ -121,7 +122,7 @@ export interface GameState {
   phone: PhoneMsg[];
   nextId: number;
   nextCall: number;
-  stats: { earned: number; sold: number; laundered: number; arrests: number; deaths: number; hired: number; imports: number; taken: number; orders: number };
+  stats: { earned: number; sold: number; laundered: number; arrests: number; deaths: number; hired: number; imports: number; taken: number; orders: number; made: Partial<Record<ProductId, number>> };
   ledger: { street: number; biz: number; laundered: number; sold: number };
   objectives: string[];
 }
@@ -129,17 +130,18 @@ export interface GameState {
 export interface View {
   scene: 'city' | 'interior';
   lot: number | null;
-  selection: { type: 'block' | 'lot' | 'goon'; id: number } | null;
+  selection: { type: 'block' | 'lot' | 'goon' | 'station'; id: number } | null;
+  placing: StationId | null;
   speed: number;
   started: boolean;
   crt: boolean;
   wobble: boolean;
 }
 
-export const SAVE_KEY = 'neon-kingpin-v2';
-const VERSION = 2;
+export const SAVE_KEY = 'neon-kingpin-v3';
+const VERSION = 3;
 
-export const view: View = { scene: 'city', lot: null, selection: null, speed: 1, started: false, crt: true, wobble: true };
+export const view: View = { scene: 'city', lot: null, selection: null, placing: null, speed: 1, started: false, crt: true, wobble: true };
 
 export let state: GameState = newGame();
 
@@ -185,10 +187,10 @@ export function newGame(): GameState {
     dirty: 2500,
     minutes: 20 * 60,
     turf,
-    biz: { [map.starterLot]: { mode: 'owned', upgrades: [] } },
+    biz: { [map.starterLot]: { mode: 'owned', upgrades: [], stations: [] } },
     goons: [],
     ops: [],
-    stash: { green: 30, candy: 10, snow: 0 },
+    stash: emptyStash({ weed: 12, moonshine: 6 }),
     ledger: { street: 0, biz: 0, laundered: 0, sold: 0 },
     heat: 5,
     bribes: 0,
@@ -197,7 +199,7 @@ export function newGame(): GameState {
     phone: [],
     nextId: 1,
     nextCall: 21 * 60,
-    stats: { earned: 0, sold: 0, laundered: 0, arrests: 0, deaths: 0, hired: 0, imports: 0, taken: 0, orders: 0 },
+    stats: { earned: 0, sold: 0, laundered: 0, arrests: 0, deaths: 0, hired: 0, imports: 0, taken: 0, orders: 0, made: {} },
     objectives: [],
   };
   return s;
@@ -269,7 +271,7 @@ export function stashCap() {
 }
 
 export function stashTotal() {
-  return PRODUCT_IDS.reduce((a, p) => a + state.stash[p], 0);
+  return ITEM_IDS.reduce((a, p) => a + state.stash[p], 0);
 }
 
 export function playerBlocks() {
@@ -324,4 +326,27 @@ export function clock(minutes: number) {
   const m = Math.floor(minutes % 1440);
   const hour = Math.floor(m / 60);
   return { day, hour, hh: String(hour).padStart(2, '0'), mm: String(m % 60).padStart(2, '0') };
+}
+
+export interface Station {
+  id: number;
+  type: StationId;
+  x: number;
+  y: number;
+  recipe: number;
+  /** 0..1 while a batch is loaded */
+  progress: number;
+  loaded: boolean;
+  status: 'idle' | 'running' | 'nostaff' | 'noinput' | 'full';
+}
+
+export function emptyStash(init: Partial<Record<ItemId, number>> = {}): Record<ItemId, number> {
+  const s = {} as Record<ItemId, number>;
+  for (const k of ITEM_IDS) s[k] = init[k] ?? 0;
+  return s;
+}
+
+/** Goons working inside a production building. */
+export function workersAt(lotId: number) {
+  return state.goons.filter((g) => g.status === 'posted' && g.post?.kind === 'work' && g.post.lot === lotId);
 }

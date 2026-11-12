@@ -1,7 +1,7 @@
 import { bus, toast } from '../bus';
 import {
-  BIZ, DAY, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS,
-  type BizKind, type ProductId,
+  BIZ, DAY, DISTRICTS, GANGS, ITEMS, ITEM_IDS, LAUNDER_FEE, PRODUCT_IDS, STATIONS, SUPPLY_IDS,
+  type BizKind, type ProductId, type SupplyId,
 } from '../config';
 import {
   bizActive, bizFx, blockOwner, clock, goonFrom, goonName, makeCandidate, map, money, nextId, playerBlocks, saveGame,
@@ -10,6 +10,7 @@ import {
 import { BY, curb, marinaPier, neighbours, node, routeBetween, routeFromNode, routeToNode, WORLD_W, type Pt } from './cityMap';
 import { pick, randInt } from './rng';
 import { phoneTick } from './phone';
+import { tickProduction } from './production';
 
 // ---------------------------------------------------------------------------
 // strength maths
@@ -219,7 +220,7 @@ function stepOp(op: Op, dt: number) {
         if (blockOwner(op.block) === 0) {
           for (const g of crewOf(op)) {
             g.status = 'posted';
-            g.post = { kind: op.postAs!, block: op.block };
+            g.post = { kind: op.postAs!, block: op.block, lot: op.postAs === 'work' ? op.target : undefined };
             g.opId = null;
             g.note = '';
           }
@@ -270,7 +271,7 @@ function stepOp(op: Op, dt: number) {
           const power = crewOf(op).reduce((a, g) => a + g.muscle + g.nerve * 0.6, 0);
           const resist = 5 + lot.price / 4000;
           if (blockOwner(op.block) === 0 && !state.biz[op.target] && Math.random() < power / (power + resist)) {
-            state.biz[op.target] = { mode: 'extorted', upgrades: [] };
+            state.biz[op.target] = { mode: 'extorted', upgrades: [], stations: [] };
             state.heat = Math.min(100, state.heat + 6);
             toast(`${lot.name} agreed to pay for "protection".`, 'good', op.block);
           } else {
@@ -418,11 +419,13 @@ function unload(op: Op) {
   if (!op.cargo) return;
   let free = stashCap() - stashTotal();
   let dumped = 0;
-  for (const p of PRODUCT_IDS) {
-    const n = Math.min(op.cargo[p], Math.max(0, free));
+  for (const p of ITEM_IDS) {
+    const want = op.cargo[p] ?? 0;
+    if (!want) continue;
+    const n = Math.min(want, Math.max(0, free));
     state.stash[p] += n;
     free -= n;
-    dumped += op.cargo[p] - n;
+    dumped += want - n;
   }
   op.cargo = null;
   toast(dumped ? `Delivery in, but the stash is full: ${dumped} dumped in the canal.` : 'Delivery stashed.', dumped ? 'warn' : 'good');
@@ -496,7 +499,7 @@ function stepCorners(dt: number) {
     if (blockOwner(block) !== 0) continue;
     const d = DISTRICTS[map.blocks[block].district];
     const avail = PRODUCT_IDS.filter((p) => state.stash[p] > 0);
-    if (!avail.length) { g.note = 'Dry. Needs product.'; continue; }
+    if (!avail.length) { g.note = 'Out of product'; continue; }
     g.note = 'Slinging';
     const dem = avail.reduce((a, p) => a + d.demand[p], 0) / avail.length;
     g.saleAcc += dt * 0.035 * dem * (1 + salesBonus(block)) * (0.6 + g.smarts * 0.06);
@@ -504,19 +507,19 @@ function stepCorners(dt: number) {
       g.saleAcc -= 1;
       const pool = PRODUCT_IDS.filter((p) => state.stash[p] > 0);
       if (!pool.length) break;
-      const weights = pool.map((p) => d.demand[p] * PRODUCTS[p].sell);
+      const weights = pool.map((p) => d.demand[p] * ITEMS[p].sell!);
       let r = Math.random() * weights.reduce((a, b) => a + b, 0);
       let prod: ProductId = pool[0];
       for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { prod = pool[i]; break; } }
       state.stash[prod]--;
-      const amount = Math.round(PRODUCTS[prod].sell * d.price * (1 + priceBonus()) * (0.9 + Math.random() * 0.2));
+      const amount = Math.round(ITEMS[prod].sell! * d.price * (1 + priceBonus()) * (0.9 + Math.random() * 0.2));
       state.dirty += amount;
       state.ledger.street += amount;
       state.ledger.sold++;
       state.stats.earned += amount;
       state.stats.sold++;
       g.earned += amount;
-      state.heat = Math.min(100, state.heat + PRODUCTS[prod].heat * d.police);
+      state.heat = Math.min(100, state.heat + ITEMS[prod].heat! * d.police);
       bus.emit('sale', { goon: g.id, amount, product: prod });
     }
   }
@@ -543,6 +546,7 @@ function tick(dt: number) {
 
   for (const op of [...state.ops]) stepOp(op, dt);
   stepCorners(dt);
+  tickProduction(dt);
 
   // business income and laundering
   let launder = 0;
@@ -624,16 +628,19 @@ function hourly() {
   if (s >= 4) {
     for (const k of Object.keys(state.biz)) {
       const id = Number(k);
-      if (!bizActive(id) || bizFx(id)!.stash <= 0) continue;
+      if (!bizActive(id) || (bizFx(id)!.stash <= 0 && !state.biz[id].stations.length)) continue;
+      // labs with fumes draw raids harder
+      const labs = state.biz[id].stations.filter((st) => STATIONS[st.type].fumes && st.loaded).length;
       const def = bizFx(id)!.defense;
-      if (Math.random() > (0.03 * (s - 3)) / (1 + def / 3)) continue;
+      if (Math.random() > (0.03 * (s - 3) * (1 + labs * 0.3)) / (1 + def / 3)) continue;
       const lostFrac = Math.min(1, bizFx(id)!.stash / Math.max(1, stashCap()));
       let lost = 0;
-      for (const p of PRODUCT_IDS) { const n = Math.round(state.stash[p] * lostFrac); state.stash[p] -= n; lost += n; }
+      for (const p of ITEM_IDS) { const n = Math.round(state.stash[p] * lostFrac); state.stash[p] -= n; lost += n; }
+      for (const st of state.biz[id].stations) { st.loaded = false; st.progress = 0; }
       const fine = Math.round(state.dirty * 0.2);
       state.dirty -= fine;
       state.heat = Math.max(0, state.heat - 25);
-      toast(`DEA raided ${map.lots[id].name}! Lost ${lost} product and ${money(fine)}.`, 'bad', map.lots[id].block);
+      toast(`DEA raided ${map.lots[id].name}! Lost ${lost} items and ${money(fine)}. Batches ruined.`, 'bad', map.lots[id].block);
       bus.emit('fx', { block: map.lots[id].block, kind: 'bust' });
       break;
     }
@@ -730,6 +737,24 @@ export function sendPost(ids: number[], block: number, kind: 'corner' | 'guard')
   return true;
 }
 
+/** Assign crew to run stations inside a production building. Walks over if it's the HQ block. */
+export function sendToWork(ids: number[], lotId: number) {
+  const crew = idleGoons(ids);
+  const block = map.lots[lotId].block;
+  if (!crew.length || !bizActive(lotId)) return false;
+  if (block === map.lots[map.starterLot].block) {
+    for (const g of crew) { g.status = 'posted'; g.post = { kind: 'work', block, lot: lotId }; g.note = ''; }
+    bus.emit('changed');
+    return true;
+  }
+  const base = baseBlock(block);
+  const v = makeVehicle('crew', curb(base), routeBetween(base, block), carSpeed());
+  const op = newOp('drop', 0, crew.map((g) => g.id), lotId, block, v);
+  op.postAs = 'work';
+  bus.emit('changed');
+  return true;
+}
+
 export function recall(id: number) {
   const g = state.goons.find((x) => x.id === id);
   if (!g || g.status !== 'posted') return;
@@ -772,39 +797,53 @@ export function startContract(ids: number[], from: number, to: number, reward: n
   return true;
 }
 
-export function orderFromSal(order: Record<ProductId, number>, unitPrice?: Partial<Record<ProductId, number>>) {
-  const cost = PRODUCT_IDS.reduce((a, p) => a + order[p] * (unitPrice?.[p] ?? PRODUCTS[p].sal), 0);
-  const qty = PRODUCT_IDS.reduce((a, p) => a + order[p], 0);
+export type Order = Partial<Record<SupplyId, number>>;
+
+export function orderCost(order: Order, marina = false, unitPrice?: Order) {
+  return SUPPLY_IDS.reduce((a, s) => a + (order[s] ?? 0) * (unitPrice?.[s] ?? (marina ? ITEMS[s].marina ?? ITEMS[s].price! : ITEMS[s].price!)), 0);
+}
+
+export function orderFromSal(order: Order, unitPrice?: Order) {
+  const cost = orderCost(order, false, unitPrice);
+  const qty = SUPPLY_IDS.reduce((a, s) => a + (order[s] ?? 0), 0);
   if (!qty) return false;
-  if (state.dirty < cost) { toast('Sal only takes cash. Dirty cash. You don\'t have enough.', 'warn'); return false; }
-  state.dirty -= cost;
+  if (state.dirty + state.clean < cost) { toast('Sal wants cash up front. You don\'t have enough.', 'warn'); return false; }
+  spend(cost);
   const base = baseBlock();
   const j = randInt(0, BY);
   const v = makeVehicle('van', { x: -80, y: node(0, j).y }, routeFromNode(0, j, base), 26);
   const op = newOp('delivery', -1, [], base, base, v);
   op.cargo = { ...order };
   state.stats.orders++;
-  toast(`Sal's van is on the way with ${qty} product.`, 'info');
+  toast(`Sal's van is on the way with ${qty} supplies.`, 'info');
   bus.emit('changed');
   return true;
 }
 
-export function importShipment(order: Record<ProductId, number>) {
+export function importShipment(order: Order) {
   if (!bizActive(map.marinaLot) || state.biz[map.marinaLot].mode !== 'owned') return false;
-  const cost = PRODUCT_IDS.reduce((a, p) => a + order[p] * PRODUCTS[p].marina, 0);
-  if (!PRODUCT_IDS.some((p) => order[p] > 0)) return false;
-  if (state.dirty < cost) { toast('Not enough dirty cash for the shipment.', 'warn'); return false; }
-  state.dirty -= cost;
+  const clean: Order = { cocaleaf: order.cocaleaf ?? 0, opium: order.opium ?? 0 };
+  const cost = orderCost(clean, true);
+  if (!cost) return false;
+  if (state.dirty + state.clean < cost) { toast('Not enough cash for the shipment.', 'warn'); return false; }
+  spend(cost);
   const ml = map.lots[map.marinaLot];
   const dock = marinaPier(ml);
   const fast = state.biz[map.marinaLot].upgrades.includes('speedboat');
   const v = makeVehicle('boat', { x: WORLD_W + 80, y: dock.y - 200 }, [{ x: WORLD_W - 60, y: dock.y - 60 }, dock], fast ? 5 : 2.5);
   const op = newOp('import', 0, [], map.marinaLot, ml.block, v);
   op.phase = 'sail';
-  op.cargo = { ...order };
+  op.cargo = clean;
   toast('Shipment ordered. Watch the horizon.', 'info');
   bus.emit('changed');
   return true;
+}
+
+/** Dirty cash first, then clean. */
+export function spend(n: number) {
+  const d = Math.min(state.dirty, n);
+  state.dirty -= d;
+  state.clean -= n - d;
 }
 
 export function buyBiz(lotId: number) {
@@ -815,7 +854,7 @@ export function buyBiz(lotId: number) {
   const price = cur ? Math.round(l.price * 0.6) : l.price;
   if (state.clean < price) { toast(`You need ${money(price)} in CLEAN money. Launder some first.`, 'warn'); return false; }
   state.clean -= price;
-  state.biz[lotId] = { mode: 'owned', upgrades: cur?.upgrades ?? [] };
+  state.biz[lotId] = { mode: 'owned', upgrades: cur?.upgrades ?? [], stations: cur?.stations ?? [] };
   toast(`You own ${l.name} now.`, 'good');
   bus.emit('changed');
   return true;
@@ -893,44 +932,12 @@ export function bribe(amount = bribeCost(), cut = 30) {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// objectives
-
-export interface Objective { id: string; text: string; done: () => boolean }
-
-export const OBJECTIVES: Objective[] = [
-  { id: 'corner', text: 'Put someone on a corner. Click your block.', done: () => state.goons.some((g) => g.post?.kind === 'corner') },
-  { id: 'order', text: 'Call Sal and buy more product.', done: () => state.stats.orders > 0 },
-  { id: 'earn', text: 'Make $2,500 on the street.', done: () => state.stats.earned >= 2500 },
-  { id: 'hire', text: 'Hire some new muscle.', done: () => state.stats.hired > 0 },
-  { id: 'take', text: 'Take over a neighbouring block.', done: () => playerBlocks().length >= 2 },
-  { id: 'biz', text: 'Buy or shake down a business.', done: () => Object.keys(state.biz).length >= 2 },
-  { id: 'launder', text: 'Own a business that launders money.', done: () => Object.keys(state.biz).map(Number).some((id) => state.biz[id].mode === 'owned' && BIZ[map.lots[id].kind as BizKind].launder > 0) },
-  { id: 'blocks', text: 'Control 8 blocks.', done: () => playerBlocks().length >= 8 },
-  { id: 'marina', text: 'Own the Marina and bring in a boat.', done: () => state.stats.imports > 0 },
-  { id: 'wipe', text: 'Wipe out a rival gang.', done: () => state.gangs.some((g, i) => i > 0 && !g.alive) },
-  { id: 'city', text: 'Run the whole city.', done: () => state.gangs.every((g, i) => i === 0 || !g.alive) },
-];
-
-export function checkObjectives() {
-  for (const o of OBJECTIVES) {
-    if (state.objectives.includes(o.id)) continue;
-    if (o.done()) {
-      state.objectives.push(o.id);
-      toast(`GOAL DONE: ${o.text}`, 'good');
-      bus.emit('changed');
-    }
-    break;
-  }
-}
-
 let lastDryWarn = -1e9;
 
 function dryCheck() {
   const dealers = state.goons.some((g) => g.status === 'posted' && g.post?.kind === 'corner');
-  if (!dealers || stashTotal() > 0 || state.minutes - lastDryWarn < 6 * 60) return;
-  if (state.ops.some((o) => o.kind === 'delivery' || o.kind === 'import')) return;
+  if (!dealers || PRODUCT_IDS.some((p) => state.stash[p] > 0) || state.minutes - lastDryWarn < 6 * 60) return;
   lastDryWarn = state.minutes;
-  toast('Your corners are dry. Hit BUY PRODUCT and call Sal.', 'warn');
+  toast('Your dealers are out of product. Get your stations cooking.', 'warn');
   bus.emit('dry');
 }

@@ -1,12 +1,22 @@
 import Phaser from 'phaser';
+import { sfx } from '../audio';
 import { bus } from '../bus';
-import { BIZ, INK, NEON, PRODUCT_IDS, ITILE as TILE, type BizKind, type Floor } from '../config';
+import { BIZ, INK, ITEMS, NEON, STATIONS, ITILE as TILE, type BizKind, type Floor, type ItemId, type StationId } from '../config';
+import { placeStation } from '../sim/production';
 import { mulberry32 } from '../sim/rng';
 import { Pix, shade, toTexture } from '../gfx/pix';
 import { Shadows } from '../gfx/shadows';
-import { map, state, view } from '../state';
+import { map, state, view, workersAt } from '../state';
 
 const WALL = 10;
+
+interface StationView {
+  img: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Image;
+  over?: Phaser.GameObjects.Image;
+  glow?: Phaser.GameObjects.Image;
+  icon: Phaser.GameObjects.Image;
+}
 
 interface Furn { key: string; x: number; y: number; rot?: number }
 interface Npc {
@@ -18,22 +28,21 @@ interface Npc {
   wait: number;
   seed: number;
   face: number;
+  target?: number;
 }
 
 /** Fixed furniture per business type, in tile units. */
 const BASE: Record<BizKind, Furn[]> = {
   safehouse: [
-    { key: 'f_sofa', x: 1, y: 6 }, { key: 'f_tv', x: 2, y: 4 }, { key: 'f_table', x: 6, y: 5 }, { key: 'f_bed', x: 12, y: 5 },
-    { key: 'f_crate', x: 5, y: 1 }, { key: 'f_crate', x: 6, y: 1 }, { key: 'f_plant', x: 12, y: 1 },
+    { key: 'f_sofa', x: 10, y: 8 }, { key: 'f_plant', x: 13, y: 1 },
   ],
   motel: [
-    { key: 'f_bed', x: 1, y: 1 }, { key: 'f_bed', x: 3, y: 1 }, { key: 'f_bed', x: 9, y: 1 }, { key: 'f_counter', x: 10, y: 7 },
-    { key: 'f_tv', x: 4, y: 6 }, { key: 'f_plant', x: 14, y: 8 },
+    { key: 'f_bed', x: 1, y: 1 }, { key: 'f_bed', x: 3, y: 1 },
+    { key: 'f_plant', x: 14, y: 8 },
   ],
   warehouse: [
-    { key: 'f_crate', x: 2, y: 2 }, { key: 'f_crate', x: 3, y: 2 }, { key: 'f_crate', x: 2, y: 3 }, { key: 'f_crate', x: 5, y: 2 },
-    { key: 'f_crate', x: 5, y: 3 }, { key: 'f_crate', x: 6, y: 3 }, { key: 'f_crate', x: 15, y: 2 }, { key: 'f_crate', x: 16, y: 2 },
-    { key: 'f_crate', x: 16, y: 3 }, { key: 'f_car3', x: 8, y: 8 },
+    { key: 'f_crate', x: 1, y: 1 }, { key: 'f_crate', x: 2, y: 1 }, { key: 'f_crate', x: 1, y: 2 },
+    { key: 'f_crate', x: 18, y: 10 }, { key: 'f_crate', x: 17, y: 10 },
   ],
   nightclub: [
     { key: 'f_bar', x: 1, y: 1 }, { key: 'f_stool', x: 1, y: 2 }, { key: 'f_stool', x: 2, y: 2 }, { key: 'f_stool', x: 3, y: 2 },
@@ -67,7 +76,7 @@ const BASE: Record<BizKind, Furn[]> = {
 };
 
 const FLOORS: Record<BizKind, { floor: Floor; color: number }> = {
-  safehouse: { floor: 'linoleum', color: 0xe0c060 },
+  safehouse: { floor: 'linoleum', color: 0x6f8f86 },
   motel: { floor: 'carpet', color: 0x14806c },
   warehouse: { floor: 'concrete', color: 0x8a8a92 },
   nightclub: { floor: 'dance', color: 0x1a1024 },
@@ -86,11 +95,21 @@ export class InteriorScene extends Phaser.Scene {
   private w = 0;
   private h = 0;
   private blocked!: Uint8Array;
+  /** furniture + upgrade slots */
+  private fixed!: Uint8Array;
+  /** walkable but can't build on (doorway) */
+  private reserved!: Uint8Array;
+  private stationViews = new Map<number, StationView>();
+  private gridG!: Phaser.GameObjects.Graphics;
+  private barsG!: Phaser.GameObjects.Graphics;
+  private ghost!: Phaser.GameObjects.Image;
+  private ghostCell = { x: 0, y: 0 };
+  private fumeT = 0;
   private npcs: Npc[] = [];
   private crew = new Map<number, Npc>();
   private upgrades = new Map<string, Phaser.GameObjects.Image>();
   private danceTiles: Phaser.GameObjects.Rectangle[] = [];
-  private bricks: Phaser.GameObjects.Image[] = [];
+
   private t = 0;
   private shadows!: Shadows;
   private offs: (() => void)[] = [];
@@ -107,8 +126,9 @@ export class InteriorScene extends Phaser.Scene {
     this.npcs = [];
     this.crew.clear();
     this.upgrades.clear();
+    this.stationViews.clear();
     this.danceTiles = [];
-    this.bricks = [];
+
   }
 
   create() {
@@ -118,10 +138,20 @@ export class InteriorScene extends Phaser.Scene {
     this.shadows = new Shadows(this, 4);
 
     this.blocked = new Uint8Array(this.w * this.h);
+    this.fixed = new Uint8Array(this.w * this.h);
+    this.reserved = new Uint8Array(this.w * this.h);
+    // keep the doorway and the tile in front of it walkable
+    const dx = Math.floor(this.w / 2);
+    this.reserved[(this.h - 1) * this.w + dx] = 1;
+    this.reserved[(this.h - 2) * this.w + dx] = 1;
     if (this.kind === 'nightclub') this.makeDanceFloor();
-    if (this.kind === 'marina') for (let y = 0; y < this.h; y++) for (let x = 10; x < this.w; x++) this.blocked[y * this.w + x] = 1;
+    if (this.kind === 'marina') for (let y = 0; y < this.h; y++) for (let x = 10; x < this.w; x++) this.fixed[y * this.w + x] = 1;
     for (const f of BASE[this.kind]) this.placeFurn(f);
+    this.gridG = this.add.graphics().setDepth(2);
+    this.barsG = this.add.graphics().setDepth(30);
+    this.ghost = this.add.image(0, 0, 'st_tent').setOrigin(0).setDepth(29).setAlpha(0.7).setVisible(false);
     this.syncUpgrades();
+    this.syncStations();
     this.spawnNpcs();
 
     const cam = this.cameras.main;
@@ -131,7 +161,17 @@ export class InteriorScene extends Phaser.Scene {
     this.scale.on('resize', this.fit, this);
 
     this.setupInput();
-    this.offs.push(bus.on('changed', () => this.syncUpgrades()));
+    this.offs.push(
+      bus.on('changed', () => { this.syncUpgrades(); this.syncStations(); }),
+      bus.on('placing', () => this.updateGhost()),
+      bus.on('batch', (e: { lot: number; station: number; out: Record<string, number> }) => {
+        if (e.lot !== this.lotId) return;
+        const st = state.biz[this.lotId]?.stations.find((s) => s.id === e.station);
+        if (!st) return;
+        const [item, n] = Object.entries(e.out)[0];
+        this.float(st.x * TILE + STATIONS[st.type].w * 8, st.y * TILE - 2, `+${n} ${ITEMS[item as ItemId].name.toUpperCase()}`, ITEMS[item as ItemId].css);
+      }),
+    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.offs.forEach((f) => f());
       this.scale.off('resize', this.fit, this);
@@ -149,26 +189,53 @@ export class InteriorScene extends Phaser.Scene {
   }
 
   private setupInput() {
-    this.input.keyboard!.on('keydown-ESC', () => bus.emit('exit'));
+    this.input.keyboard!.on('keydown-ESC', () => {
+      if (view.placing) { view.placing = null; bus.emit('placing'); }
+      else bus.emit('exit');
+    });
+    this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       this.drag = { down: true, moved: false, x: p.x, y: p.y, sx: this.cameras.main.scrollX, sy: this.cameras.main.scrollY };
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!this.drag.down || !p.isDown) return;
       const cam = this.cameras.main;
+      if (view.placing) {
+        const wp = cam.getWorldPoint(p.x, p.y);
+        this.updateGhost(wp.x, wp.y);
+        return;
+      }
+      if (!this.drag.down || !p.isDown) return;
       const dx = p.x - this.drag.x;
       const dy = p.y - this.drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) this.drag.moved = true;
       if (this.drag.moved) { cam.scrollX = this.drag.sx - dx / cam.zoom; cam.scrollY = this.drag.sy - dy / cam.zoom; }
     });
-    this.input.on('pointerup', (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+    this.input.on('pointerup', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (!this.drag.down) return;
       this.drag.down = false;
+      if (p.rightButtonReleased()) {
+        if (view.placing) { view.placing = null; bus.emit('placing'); }
+        return;
+      }
+      if (view.placing) {
+        const type = view.placing;
+        if (this.canPlace(type, this.ghostCell.x, this.ghostCell.y) && placeStation(this.lotId, type, this.ghostCell.x, this.ghostCell.y)) {
+          sfx('cash');
+          this.cameras.main.shake(70, 0.002);
+          // keep placing only if they can afford another one
+          if (state.dirty + state.clean < STATIONS[type].cost) view.placing = null;
+          bus.emit('placing');
+        } else sfx('lose');
+        return;
+      }
       if (this.drag.moved) return;
       const up = over.find((o) => o.getData('upgrade'));
       if (up) bus.emit('upgradeFocus', up.getData('upgrade'));
       const g = over.find((o) => o.getData('goon') !== undefined);
+      const st = over.find((o) => o.getData('station') !== undefined);
       if (g) { view.selection = { type: 'goon', id: g.getData('goon') }; bus.emit('select'); }
+      else if (st) { view.selection = { type: 'station', id: st.getData('station') }; bus.emit('select'); }
+      else if (view.selection) { view.selection = null; bus.emit('select'); }
     });
   }
 
@@ -178,7 +245,7 @@ export class InteriorScene extends Phaser.Scene {
     const tw = Math.ceil(img.width / TILE);
     const th = Math.ceil(img.height / TILE);
     if (f.key !== 'f_stool') {
-      for (let y = f.y; y < Math.min(this.h, f.y + th); y++) for (let x = f.x; x < Math.min(this.w, f.x + tw); x++) this.blocked[y * this.w + x] = 1;
+      for (let y = f.y; y < Math.min(this.h, f.y + th); y++) for (let x = f.x; x < Math.min(this.w, f.x + tw); x++) this.fixed[y * this.w + x] = 1;
     }
     return img;
   }
@@ -206,12 +273,125 @@ export class InteriorScene extends Phaser.Scene {
       else {
         img.setScale(0.5);
         this.tweens.add({ targets: img, scale: 1, duration: 250, ease: 'Back.easeOut' });
-        for (let y = u.slot[1]; y < Math.min(this.h, u.slot[1] + Math.ceil(img.height / TILE)); y++) {
-          for (let x = u.slot[0]; x < Math.min(this.w, u.slot[0] + Math.ceil(img.width / TILE)); x++) this.blocked[y * this.w + x] = 1;
-        }
+      }
+      // slots stay reserved whether or not the upgrade is bought, so stations never sit on them
+      const tex = this.textures.get(`f_${u.sprite}`).getSourceImage();
+      for (let y = u.slot[1]; y < Math.min(this.h, u.slot[1] + Math.ceil(tex.height / TILE)); y++) {
+        for (let x = u.slot[0]; x < Math.min(this.w, u.slot[0] + Math.ceil(tex.width / TILE)); x++) this.fixed[y * this.w + x] = 1;
       }
       this.upgrades.set(u.id, img);
     }
+    this.rebuildBlocked();
+  }
+
+  private rebuildBlocked() {
+    this.blocked = new Uint8Array(this.fixed);
+    for (const st of state.biz[this.lotId]?.stations ?? []) {
+      const d = STATIONS[st.type];
+      for (let y = st.y; y < st.y + d.h; y++) for (let x = st.x; x < st.x + d.w; x++) this.blocked[y * this.w + x] = 1;
+    }
+  }
+
+  canPlace(type: StationId, x: number, y: number) {
+    const d = STATIONS[type];
+    if (x < 0 || y < 0 || x + d.w > this.w || y + d.h > this.h) return false;
+    for (let yy = y; yy < y + d.h; yy++) for (let xx = x; xx < x + d.w; xx++) if (this.blocked[yy * this.w + xx] || this.reserved[yy * this.w + xx]) return false;
+    return true;
+  }
+
+  private syncStations() {
+    const b = state.biz[this.lotId];
+    if (!b) return;
+    const ids = new Set(b.stations.map((s) => s.id));
+    for (const [id, v] of this.stationViews) {
+      if (ids.has(id)) continue;
+      v.img.destroy();
+      v.shadow.destroy();
+      v.over?.destroy();
+      v.glow?.destroy();
+      v.icon.destroy();
+      this.stationViews.delete(id);
+    }
+    for (const st of b.stations) {
+      if (this.stationViews.has(st.id)) continue;
+      const d = STATIONS[st.type];
+      const px = st.x * TILE;
+      const py = st.y * TILE;
+      const shadow = this.add.image(px + 4, py + 4, `st_${st.type}`).setOrigin(0).setDepth(4).setTintFill(INK).setAlpha(0.5);
+      const img = this.add.image(px, py, `st_${st.type}`).setOrigin(0).setDepth(5).setInteractive({ useHandCursor: true });
+      img.setData('station', st.id);
+      const v: StationView = { img, shadow, icon: this.add.image(px + d.w * TILE - 2, py + 2, 'warn').setDepth(31).setVisible(false) };
+      if (st.type === 'tent') {
+        v.over = this.add.image(px + 16, py + 16, 'st_plants').setDepth(6);
+        v.glow = this.add.image(px + 16, py + 16, 'glow_pink').setDepth(7).setBlendMode(Phaser.BlendModes.ADD).setScale(0.9);
+      } else if (st.type === 'rack') v.over = this.add.image(px + 2, py + 1, 'st_rack_full').setOrigin(0).setDepth(6);
+      else if (st.type === 'trays') v.over = this.add.image(px + 2, py + 2, 'st_trays_full').setOrigin(0).setDepth(6);
+      if (d.fumes) v.glow = this.add.image(px + d.w * 8, py + d.h * 8, 'glow_orange').setDepth(7).setBlendMode(Phaser.BlendModes.ADD).setScale(d.w * 0.5);
+      img.setScale(0.6);
+      this.tweens.add({ targets: img, scale: 1, duration: 220, ease: 'Back.easeOut' });
+      this.stationViews.set(st.id, v);
+    }
+    this.rebuildBlocked();
+  }
+
+  private drawStations(dt: number) {
+    const g = this.barsG;
+    g.clear();
+    const b = state.biz[this.lotId];
+    if (!b) return;
+    this.fumeT -= dt;
+    const puff = this.fumeT <= 0;
+    if (puff) this.fumeT = 0.35;
+    for (const st of b.stations) {
+      const v = this.stationViews.get(st.id);
+      if (!v) continue;
+      const d = STATIONS[st.type];
+      const px = st.x * TILE;
+      const py = st.y * TILE;
+      const running = st.status === 'running';
+      const W = d.w * TILE;
+      // progress bar under the station
+      if (st.loaded) {
+        g.fillStyle(INK, 1).fillRect(px + 2, py + d.h * TILE + 1, W - 4, 4);
+        g.fillStyle(running ? NEON.green : NEON.yellow, 1).fillRect(px + 3, py + d.h * TILE + 2, (W - 6) * st.progress, 2);
+      }
+      v.icon.setVisible(st.status === 'noinput' || st.status === 'nostaff' || st.status === 'full');
+      v.icon.setTexture(st.status === 'nostaff' ? 'zzz' : 'warn').setY(py + 2 + (Math.floor(this.t * 3) % 2));
+      if (st.type === 'tent') {
+        const grow = st.loaded ? st.progress : 0;
+        v.over!.setScale(0.2 + grow * 0.8).setAlpha(st.loaded ? 1 : 0).setAngle(Math.sin(this.t + st.id) * 4);
+        v.glow!.setAlpha(running ? 0.35 + Math.sin(this.t * 2) * 0.05 : 0.05);
+      } else if (st.type === 'rack' || st.type === 'trays') {
+        v.over!.setAlpha(st.loaded ? 1 : 0).setTint(st.type === 'rack' && st.progress > 0.5 ? 0xb8c870 : 0xffffff);
+      }
+      if (d.fumes && v.glow) v.glow.setAlpha(running ? 0.3 + Math.sin(this.t * 9 + st.id) * 0.12 : 0);
+      if (d.fumes && running && puff) this.fume(px + W / 2 + (Math.random() - 0.5) * W * 0.5, py + 6);
+      if (view.selection?.type === 'station' && view.selection.id === st.id) {
+        g.lineStyle(2, NEON.yellow, 0.6 + Math.sin(this.t * 6) * 0.4).strokeRect(px - 2, py - 2, W + 4, d.h * TILE + 4);
+      }
+    }
+  }
+
+  private fume(x: number, y: number) {
+    const s = this.add.image(x, y, 'smoke').setDepth(30).setAlpha(0.55).setScale(0.6);
+    this.tweens.add({ targets: s, y: y - 22 - Math.random() * 10, x: x + (Math.random() - 0.5) * 10, alpha: 0, scale: 1.6, duration: 1600, onComplete: () => s.destroy() });
+  }
+
+  private updateGhost(px?: number, py?: number) {
+    const type = view.placing;
+    this.gridG.clear();
+    if (!type) {
+      this.ghost.setVisible(false);
+      return;
+    }
+    const d = STATIONS[type];
+    if (px !== undefined && py !== undefined) this.ghostCell = { x: Math.round(px / TILE - d.w / 2), y: Math.round(py / TILE - d.h / 2) };
+    this.gridG.lineStyle(1, 0xffffff, 0.12);
+    for (let x = 0; x <= this.w; x++) this.gridG.lineBetween(x * TILE, 0, x * TILE, this.h * TILE);
+    for (let y = 0; y <= this.h; y++) this.gridG.lineBetween(0, y * TILE, this.w * TILE, y * TILE);
+    for (let i = 0; i < this.w * this.h; i++) if (this.blocked[i] || this.reserved[i]) this.gridG.fillStyle(NEON.red, 0.12).fillRect((i % this.w) * TILE, Math.floor(i / this.w) * TILE, TILE, TILE);
+    const ok = this.canPlace(type, this.ghostCell.x, this.ghostCell.y) && state.dirty + state.clean >= d.cost;
+    this.ghost.setTexture(`st_${type}`).setVisible(true).setPosition(this.ghostCell.x * TILE, this.ghostCell.y * TILE).setTint(ok ? 0x9cff9c : 0xff6a6a);
   }
 
   private freeCell(rng = Math.random): { x: number; y: number } {
@@ -339,58 +519,78 @@ export class InteriorScene extends Phaser.Scene {
     }
 
     this.syncCrew(dt);
-    this.syncStash();
+    this.drawStations(dt);
     this.shadows.update();
   }
 
+  private float(x: number, y: number, s: string, color: string) {
+    const t = this.add.text(Math.round(x), Math.round(y), s, {
+      fontFamily: '"Press Start 2P", monospace', fontSize: '6px', color, stroke: '#140a1e', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(40).setResolution(4);
+    this.tweens.add({ targets: t, y: y - 16, alpha: 0, duration: 1600, ease: 'Cubic.easeOut', onComplete: () => t.destroy() });
+  }
+
+  /** Free tile next to a station for a worker to stand on. */
+  private standSpot(stId: number) {
+    const st = state.biz[this.lotId]?.stations.find((s) => s.id === stId);
+    if (!st) return null;
+    const d = STATIONS[st.type];
+    const opts: { x: number; y: number; fx: number; fy: number }[] = [];
+    for (let x = st.x; x < st.x + d.w; x++) { opts.push({ x, y: st.y + d.h, fx: x, fy: st.y + d.h - 1 }, { x, y: st.y - 1, fx: x, fy: st.y }); }
+    for (let y = st.y; y < st.y + d.h; y++) { opts.push({ x: st.x - 1, y, fx: st.x, fy: y }, { x: st.x + d.w, y, fx: st.x + d.w - 1, fy: y }); }
+    const ok = opts.filter((o) => o.x >= 0 && o.y >= 0 && o.x < this.w && o.y < this.h && !this.blocked[o.y * this.w + o.x]);
+    return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null;
+  }
+
   private syncCrew(dt: number) {
-    const lot = map.lots[this.lotId];
-    const here = state.goons.filter((g) =>
-      (g.status === 'posted' && g.post?.block === lot.block) || ((g.status === 'idle' || g.status === 'hurt') && this.kind === 'safehouse' && this.lotId === map.starterLot));
+    const workers = workersAt(this.lotId);
+    const lounging = this.lotId === map.starterLot ? state.goons.filter((g) => g.status === 'idle' || g.status === 'hurt') : [];
+    const here = [...workers, ...lounging];
     const ids = new Set(here.map((g) => g.id));
+    const stations = state.biz[this.lotId]?.stations ?? [];
     for (const g of here) {
       let n = this.crew.get(g.id);
       if (!n) {
-        const c = this.freeCell();
-        const spr = this.shadows.add(this.add.image(c.x * TILE + 8, c.y * TILE + 8, `crew${g.look}`).setDepth(11).setInteractive({ useHandCursor: true }), 3);
+        const dx = Math.floor(this.w / 2);
+        const spr = this.shadows.add(this.add.image(dx * TILE + 8, (this.h - 1) * TILE + 8, `crew${g.look}`).setDepth(11).setInteractive({ useHandCursor: true }), 3);
         spr.setData('goon', g.id);
-        n = { spr, mode: 'walk', x: c.x * TILE + 8, y: c.y * TILE + 8, path: [], wait: Math.random() * 2, seed: Math.random() * 10, face: 0 };
+        n = { spr, mode: 'walk', x: dx * TILE + 8, y: (this.h - 1) * TILE + 8, path: [], wait: Math.random(), seed: Math.random() * 10, face: -Math.PI / 2 };
         this.crew.set(g.id, n);
       }
       n.spr.setTint(g.status === 'hurt' ? 0xff8080 : 0xffffff);
-      this.stepWalker(n, dt * (g.status === 'hurt' ? 0.4 : 1));
+      const wi = workers.indexOf(g);
+      if (wi < 0) {
+        this.stepWalker(n, dt * (g.status === 'hurt' ? 0.4 : 1));
+        continue;
+      }
+      // each worker shuttles between their two stations
+      const active = stations.filter((s) => s.loaded);
+      const mine = active.slice(wi * 2, wi * 2 + 2);
+      if (!mine.length) { this.stepWalker(n, dt); continue; }
+      if (n.path.length) { this.stepWalker(n, dt); continue; }
+      n.wait -= dt;
+      const tgt = n.target ? stations.find((s) => s.id === n!.target) : null;
+      if (tgt) {
+        const d = STATIONS[tgt.type];
+        n.face = Math.atan2((tgt.y + d.h / 2) * TILE - n.y, (tgt.x + d.w / 2) * TILE - n.x);
+        // working motion
+        const busy = tgt.status === 'running';
+        n.spr.setRotation(n.face + (busy ? Math.sin(this.t * 10 + n.seed) * 0.25 : 0));
+        n.spr.setTexture(busy && Math.floor(this.t * 4 + n.seed) % 2 ? `crew${g.look}_w` : `crew${g.look}`);
+      }
+      if (n.wait > 0 && tgt) continue;
+      n.wait = 5 + Math.random() * 6;
+      const next = mine[(mine.findIndex((s) => s.id === n!.target) + 1) % mine.length];
+      const spot = this.standSpot(next.id);
+      if (!spot) continue;
+      n.target = next.id;
+      n.path = this.path(n, spot);
     }
     for (const [id, n] of this.crew) {
       if (ids.has(id)) continue;
       n.spr.destroy();
       this.crew.delete(id);
     }
-  }
-
-  private syncStash() {
-    if (BIZ[this.kind].stash <= 0) return;
-    const per = 4;
-    const want = PRODUCT_IDS.map((p) => Math.min(60, Math.ceil(state.stash[p] / per)));
-    const total = want.reduce((a, b) => a + b, 0);
-    if (total === this.bricks.length && this.bricks.every((b, i) => b.getData('i') === i)) {
-      // only rebuild on count change
-      return;
-    }
-    this.bricks.forEach((b) => b.destroy());
-    this.bricks = [];
-    let i = 0;
-    const ox = this.kind === 'warehouse' ? 9 * TILE : 8 * TILE;
-    const oy = this.kind === 'warehouse' ? 2 * TILE : 1 * TILE + 4;
-    PRODUCT_IDS.forEach((p, pi) => {
-      for (let k = 0; k < want[pi]; k++) {
-        const col = i % 6;
-        const row = Math.floor(i / 6);
-        const img = this.add.image(ox + col * 7, oy + row * 5, `f_brick_${p}`).setOrigin(0).setDepth(6);
-        img.setData('i', i);
-        this.bricks.push(img);
-        i++;
-      }
-    });
   }
 }
 
