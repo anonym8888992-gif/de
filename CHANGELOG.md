@@ -2,6 +2,22 @@
 
 All notable changes, newest first. Work lives on branch `hoplite/messene-ithome-eccd3356`.
 
+## [0.6.0] - Slower story, story calls, UI fixes (2026-11-12)
+### Changed
+- Pacing retargeted to ~9-12 hours for a fast player: `GAME_MIN_PER_SEC` 4 -> 2 (a day is 3 min at >>>), chapter gates at days 1/8/20/36/56/80/106, 6-12 goals per chapter with much larger amounts.
+- Chapter I: 8-step guided tutorial, then a normal goal list (hire, 2 tents, 200 weed, $6k).
+- Save VERSION 5 (adds `chapterAt`); older saves are ignored.
+### Added
+- 21 mid-chapter phone calls ("story beats"), several with choices and consequences: bribe the revenue man, Pike's "tenure", Big Lou's beach tax, the Sunshine Festival, a suspected rat, the Dutchman's tribute, Uncle Vic calling from jail.
+- Calendar date in the HUD (day 1 = Mon 3 Mar 1986). Objective card shows "Chapter X arrives in N days".
+- `__nk.checkObjectives` debug hook for headless tests.
+### Fixed / polished
+- At 1366x768 the objective card no longer covers the OPT button or collides with the build bar; it sits under a compact menu and scrolls.
+- The right panel is hidden while a modal is open (it used to peek out beside/under modals). Modal windows are opaque so toasts don't show through.
+- Objective list: done goals collapse into a progress summary, per-goal progress bars, current goal highlighted. Chapter header no longer wraps.
+- Story card restyled (script title, incoming-call strip, "this chapter" goal preview). Epilogue text updated.
+- Phone: story calls no longer show "EXPIRES IN 9999H". City screen: "1 BLOCK" grammar.
+
 ## [0.5.0] - Seven Sins: story mode (2026-11-12)
 ### Added
 - Renamed the game to **Seven Sins** (title screen, HUD logo, page title, package name). New save key `seven-sins-v1`, save VERSION 4 (old saves are not loaded).

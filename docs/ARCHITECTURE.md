@@ -16,8 +16,8 @@ config.ts (static data) ──> state.ts (one mutable GameState + View)
    (Phaser canvas)                      (innerHTML + data-a click delegation)
 ```
 
-- Game time: `state.minutes` (game minutes since start). `GAME_MIN_PER_SEC = 4` at speed 1; `view.speed` is 0 (paused), 1, 2 or 4.
-- `clock(minutes)` in `state.ts` gives `{ day, hour, min }`.
+- Game time: `state.minutes` (game minutes since start). `GAME_MIN_PER_SEC = 2` at speed 1; `view.speed` is 0 (paused), 1, 2 or 4.
+- `clock(minutes)` in `state.ts` gives `{ day, hour, min, date }` (day 1 = Mon 3 Mar 1986).
 - UI never mutates deep state directly for game rules; it calls functions in `sim/`.
 
 ## Files
@@ -48,10 +48,12 @@ config.ts (static data) ──> state.ts (one mutable GameState + View)
 
 ## Save format
 
-`localStorage[SAVE_KEY]` = the `GameState` as JSON. `state.version` must equal `VERSION` (currently 4), otherwise the save is ignored.
-Fields added in v4: `chapter` (current chapter index) and `storySeen` (last chapter whose card was shown).
+`localStorage[SAVE_KEY]` = the `GameState` as JSON. `state.version` must equal `VERSION` (currently 5), otherwise the save is ignored.
+Fields added in v4: `chapter` (current chapter index) and `storySeen` (last chapter whose card was shown). v5: `chapterAt` (game minute the chapter started, for timed story beats).
 
 ## Testing
 
 There is no unit-test suite. Verification so far = `pnpm build` (typecheck) plus Playwright scripts run against `pnpm dev`
-that drive the game through `window.__nk` and take screenshots. A good next step is adding a `tests/` folder with these scripts.
+that drive the game through `window.__nk` and take screenshots. Headless Chrome renders the canvas very slowly, so the sim
+barely ticks there: call `__nk.checkObjectives()` directly instead of waiting for goals or story beats to fire.
+A good next step is adding a `tests/` folder with these scripts.

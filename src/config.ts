@@ -3,7 +3,8 @@ export const TILE = 32;
 /** Interior grid size in pixels. */
 export const ITILE = 16;
 export const BLOCK = 12; // 2 road tiles + 10 block tiles
-export const GAME_MIN_PER_SEC = 4;
+/** game minutes per real second at 1x: a day takes 12 min at >, 3 min at >>> */
+export const GAME_MIN_PER_SEC = 2;
 export const DAY = 1440;
 
 // ---------------------------------------------------------------------------

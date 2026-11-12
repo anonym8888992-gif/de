@@ -3,7 +3,7 @@ import { DAY, GANGS, ITEMS, type SupplyId } from '../config';
 import { goonFrom, makeCandidate, map, money, nextId, playerBlocks, stars, state, type PhoneMsg, type PhoneOption } from '../state';
 import { pick, randInt } from './rng';
 import { bribe, orderFromSal } from './sim';
-import { supplyUnlocked } from './story';
+import { resolveBeat, supplyUnlocked } from './story';
 
 export function pushMsg(from: string, text: string, options: PhoneOption[] = [], ttlHours = 10) {
   const m: PhoneMsg = { id: nextId(), from, text, options, at: state.minutes, expires: state.minutes + ttlHours * 60, read: false };
@@ -136,6 +136,9 @@ export function answer(msgId: number, optIdx: number): { pick?: 'contract'; data
     }
     case 'contract':
       return { pick: 'contract', data: { ...d, msg: m.id } };
+    case 'story':
+      if (resolveBeat(String(d.beat), Number(d.choice))) done();
+      break;
   }
   return {};
 }

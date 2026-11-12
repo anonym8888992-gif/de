@@ -320,28 +320,59 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* story mode */
 #story { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(10, 4, 20, .82); }
 #story.hidden { display: none; }
-#story .scard { max-width: 560px; padding: 28px 32px; background: #1a0f26; border: 3px solid var(--pink); box-shadow: 6px 6px 0 #000; text-align: center; }
-#story .snum { font-family: var(--px); font-size: 40px; color: var(--pink); text-shadow: 3px 3px 0 #000; }
-#story .ssin { font-family: var(--px); font-size: 11px; letter-spacing: 4px; color: var(--cyan, #4ff); margin: 6px 0; }
-#story h1 { margin: 4px 0 6px; }
-#story .sfrom { font-size: 11px; opacity: .7; margin-bottom: 12px; }
-#story p { text-align: left; line-height: 1.5; margin: 8px 0; }
-#story .sunlock { margin: 14px 0; font-family: var(--px); font-size: 10px; }
+#story .scard { position: relative; width: min(600px, calc(100% - 40px)); max-height: calc(100% - 40px); overflow-y: auto; padding: 24px 30px 22px; background: rgba(10, 4, 18, 0.96); border: 3px solid #fff; box-shadow: 10px 10px 0 var(--pink), 10px 10px 0 3px #000; transform: rotate(-0.8deg); animation: pop 0.16s steps(3); }
+#story .scard::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: linear-gradient(90deg, var(--pink), var(--yellow), var(--cyan)); }
+#story .shead { display: flex; align-items: center; gap: 16px; margin: 6px 0 8px; }
+#story .snum { font-family: var(--px); font-size: 46px; color: var(--pink); text-shadow: 4px 4px 0 #000, -3px 0 0 var(--cyan); min-width: 64px; text-align: center; }
+#story .ssin { font-family: var(--px); font-size: 10px; letter-spacing: 4px; color: var(--cyan); }
+#story h1 { margin: 2px 0 0; font-family: 'Mr Dafoe', cursive; font-weight: 400; font-size: 52px; line-height: 1; color: var(--yellow); text-shadow: 4px 4px 0 #000, 3px 0 0 var(--pink); transform: rotate(-2deg); transform-origin: left; }
+#story .win h1 { font-size: 70px; }
+#story .sfrom { display: flex; align-items: center; gap: 8px; font-family: var(--px); font-size: 8px; color: var(--dim); margin: 6px 0 12px; padding: 7px 10px; background: #1a0f24; border-left: 4px solid var(--pink); }
+#story .sfrom i { width: 8px; height: 8px; background: var(--red); animation: blink 0.6s steps(2) infinite; }
+#story p { font-size: 22px; line-height: 1.12; margin: 8px 0; }
+#story .sgoals { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 6px; padding-top: 10px; border-top: 2px dashed #3a2a48; }
+#story .sgoals b { width: 100%; font-family: var(--px); font-size: 8px; font-weight: 400; color: var(--yellow); }
+#story .sgoals span { font-size: 18px; padding: 2px 8px; border: 2px solid #3a2a48; color: #e8d8f0; }
+#story .sunlock { margin: 14px 0; font-family: var(--px); font-size: 9px; color: var(--dim); }
 #story .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+#story .btn.big { width: 100%; }
 .chhead { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.chhead h4 { white-space: nowrap; font-size: 8px !important; }
+.bt { width: 60px; }
 .chhead .chnum { font-family: var(--px); font-size: 18px; color: var(--pink); }
 .chhead .ct { margin: 0; font-size: 12px; }
 .chhead .btn { margin-left: auto; }
 .goals { list-style: none; margin: 0; padding: 0; }
-.goals li { display: flex; gap: 6px; align-items: flex-start; padding: 4px 0; }
-.goals li i { width: 12px; height: 12px; border: 2px solid currentColor; font-style: normal; font-size: 9px; line-height: 10px; text-align: center; flex: none; }
-.goals li.d { opacity: .5; text-decoration: line-through; }
-.goals small { display: block; opacity: .75; }
-.goals .gp, .gbar span { font-size: 10px; color: var(--gold, #fc4); }
+.goals li { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; border-top: 1px dashed #2f2140; }
+.goals li > i { width: 10px; height: 10px; margin-top: 4px; border: 2px solid #6a5a78; flex: none; }
+.goals li.cur > i { border-color: var(--yellow); background: var(--yellow); animation: blink 0.8s steps(2) infinite; }
+.goals li > div { flex: 1; min-width: 0; }
+.goals b { display: block; font-weight: 400; font-size: 19px; line-height: 1.05; }
+.goals li.cur b { color: var(--yellow); }
+.goals small { display: block; color: #cbbad8; font-size: 17px; line-height: 1.05; margin-top: 2px; }
+.goals .gp { position: relative; display: block; height: 11px; margin-top: 4px; background: #000; border: 1px solid #3a2a48; }
+.goals .gp em { position: absolute; left: 0; top: 0; bottom: 0; background: var(--pink); }
+.goals .gp span, .gbar span { position: absolute; inset: 0; text-align: center; font-family: var(--px); font-size: 6px; line-height: 10px; color: #fff; text-shadow: 1px 1px 0 #000; }
+.gsum { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; font-family: var(--px); font-size: 7px; color: var(--dim); }
+.gsum i { flex: 1; height: 4px; background: linear-gradient(90deg, var(--yellow) var(--p), #3a2a48 var(--p)); }
 .gbar { position: relative; height: 12px; background: #000; margin: 6px 0; }
 .gbar div { height: 100%; background: var(--pink); }
-.gbar span { position: absolute; inset: 0; text-align: center; line-height: 12px; }
-.nextch { margin-top: 8px; padding: 6px; border: 1px dashed var(--pink); font-size: 11px; }
+.gbar span { line-height: 12px; }
+.nextch { margin-top: 8px; padding: 8px; border: 2px dashed var(--pink); font-family: var(--px); font-size: 7px; line-height: 1.6; color: var(--pink); }
+.nextch span { font-family: var(--vt); font-size: 18px; color: var(--dim); }
+
+/* layout fixes: compact menu, objective under it, nothing overlaps at 1366x768 */
+#menu { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 206px; }
+#menu .mb { grid-column: 1 / -1; padding: 9px 14px; min-width: 0; }
+#menu .mb.sm { grid-column: auto; width: auto; text-align: center; }
+#objective { top: 330px; bottom: auto; max-height: calc(100% - 346px); overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px 0; }
+#objective::-webkit-scrollbar { width: 6px; }
+#objective::-webkit-scrollbar-thumb { background: var(--yellow); }
+#toasts { left: 366px; }
+body.modal-open #panel { visibility: hidden; }
+.mwin { background: rgb(12, 5, 20); }
+body.in-interior #bottom.build { left: 362px; transform: none; max-width: calc(100% - 362px - 420px); }
+.clock small.dn { font-size: 7px; opacity: 0.6; }
 .chain.locked { opacity: .45; }
 .chip.lock { opacity: .5; cursor: not-allowed; }
 .bt.lockd { opacity: .5; cursor: default; }

@@ -113,4 +113,4 @@ fontsReady.then(() => {
   initUI();
 });
 
-if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__nk = { get state() { return state; }, view, bus, map, get game() { return game; } };
+if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__nk = { get state() { return state; }, view, bus, map, checkObjectives, get game() { return game; } };

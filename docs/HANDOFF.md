@@ -11,22 +11,21 @@ Written for whichever AI or developer continues this project. Last updated 2026-
 - **Hard rule:** production stays abstract and fictional. Never add real synthesis steps, real precursors, quantities or conditions.
 
 ## Current status
-- Branch: `hoplite/messene-ithome-eccd3356`. `pnpm build` passes.
-- Story mode (v0.5.0) is implemented and smoke-tested: new game shows the Chapter I card, only weed stations are unlocked, no runtime errors.
-- **Not yet fully playtested:** chapters II-VII end-to-end, the balance of goal numbers vs `minDay`, the victory screen.
+- Branch: `hoplite/aigeai-e145465a` (v0.6.0, based on `hoplite/messene-ithome-eccd3356` which holds v0.5.0). `pnpm build` passes.
+- v0.6.0: story stretched to a ~9-12 hour fast run (see GAMEPLAY.md "Pacing target"), mid-chapter story calls with choices, calendar date in the HUD, menu/layout fixes at 1366x768, restyled story card.
+- **Not yet fully playtested:** chapters II-VII end-to-end, the balance of goal numbers vs `minDay`, the victory screen. The 9-12 h figure is an estimate from production math.
 
 ## Open bugs / known issues
-1. Some menus were reported "still buggy" by the owner. Not yet pinned down. Check at 1366x768: modals overlapping the bottom bar, the right panel (`#panel`) overlapping the objective panel, clicks intercepted by the build bar (previously fixed by raising `#modal` z-index).
-2. Story card styling is basic (added quickly in `style.css` under `/* story mode */`). Polish it.
-3. Old saves (`neon-kingpin-v3`) are ignored after the rename. That's intended.
-4. `tutAction()` in `ui.ts` only has SHOW ME behaviour for some goal ids. Goals without an `action` show no button.
+1. Balance is unverified over a full run. Watch for: waiting idle before a chapter's `minDay`, goals that take far longer than the gate (e.g. "wipe all 3 gangs"), money snowballing late.
+2. Old saves (VERSION 4 and the earlier `neon-kingpin-v3`) are ignored. Intended.
+3. Interior build bar scrolls horizontally on small screens (it now stays between the objective card and the right panel).
+4. Graphics polish this round was UI-only (story card, objective list, HUD). The in-world pixel art was left as is, by the owner's request ("pretty happy with what we have").
 
 ## Next tasks (owner's requests, in priority order)
-1. **UI polish pass + fix buggy menus** (see bugs above). Test every modal: Phone, Supplies, Recipes, Crew, City, Help, Options.
-2. **Graphics polish** (owner is happy with the style; light polish only, not a redesign).
-3. **Pacing/balance**: play through chapters, tune `minDay`, goal amounts and recipe times so each chapter takes about 30-60 minutes. Consider more mid-chapter phone story events.
-4. More story flavour: side jobs per character, consequences (Uncle Vic calls, betrayals).
-5. Later: Electron `.exe` packaging.
+1. **Playtest pass** through chapters II-VII; tune `minDay`, goal amounts and recipe times in `story.ts` / `config.ts`.
+2. More story beats/side jobs per character if chapters feel empty while waiting for `minDay`.
+3. Light in-world graphics polish if the owner asks.
+4. Later: Electron `.exe` packaging.
 
 ## How to verify changes
 - `pnpm build` must pass (strict TS; unused imports fail the build).

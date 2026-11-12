@@ -13,7 +13,7 @@ import {
   type Order,
 } from '../sim/sim';
 import {
-  CHAPTERS, TUTORIAL_LEN, chapter, chapterComplete, chapterFor, currentGoal, finished, goalDone, productUnlocked, recipeUnlocked,
+  CHAPTERS, TUT_GOALS, chapter, chapterComplete, chapterFor, currentGoal, finished, goalDone, guidedNow, productUnlocked, recipeUnlocked,
   showChapterIfNeeded, skipTutorial, stationUnlocked, supplyUnlocked, type Goal,
 } from '../sim/story';
 import {
@@ -137,6 +137,9 @@ function toggle(m: Modal) {
 
 function render() {
   if (!view.started) return;
+  // the right panel and objective sit under modals; hide them so they don't peek out beside the window
+  document.body.classList.toggle('modal-open', !!ui.modal);
+  document.body.classList.toggle('in-interior', view.scene === 'interior');
   renderTop();
   renderObjective();
   renderPanel();
@@ -163,7 +166,7 @@ function renderTop() {
     <div class="st"><small>TURF</small><b>${playerBlocks().length}<span class="dim">/30</span></b></div>
     <div class="st"><small>WANTED</small><b class="stars">${starsHtml()}</b></div>
     <div class="grow"></div>
-    <div class="st clock"><small>DAY ${c.day} ${night ? 'NIGHT' : 'DAY'}</small><b>${c.hh}:${c.mm}</b></div>
+    <div class="st clock"><small>${c.date} · DAY ${c.day}</small><b>${c.hh}:${c.mm}</b><small class="dn">${night ? 'NIGHT' : 'DAY'}</small></div>
     <div class="speeds">${sp(0, 'II')}${sp(1, '>')}${sp(2, '>>')}${sp(4, '>>>')}</div>
   `);
   set('menu', `
@@ -188,27 +191,31 @@ function renderObjective() {
   const head = `<div class="chhead"><span class="chnum">${ch.num}</span><div><h4>CHAPTER ${ch.num} · ${ch.sin}</h4><p class="ct">${esc(ch.title)}</p></div><button class="btn tiny" data-a="story" title="Read the story again">STORY</button></div>`;
   let body = '';
   let action = '';
-  if (ch.guided) {
+  const guided = guidedNow();
+  if (guided) {
     const g = currentGoal();
     if (g) {
-      const n = ch.goals.indexOf(g);
+      const n = TUT_GOALS.indexOf(g);
       body = `<p class="ot">${g.title}</p><p class="od">${g.text}</p>${progressBar(g)}
-        <div class="ob">${g.action ? `<button class="btn gold" data-a="tutAct">${g.action}</button>` : ''}${n < TUTORIAL_LEN - 1 ? '<button class="btn tiny" data-a="tutSkip">SKIP TUTORIAL</button>' : ''}</div>
-        <div class="opips">${ch.goals.map((_, i) => `<i class="${i < n ? 'd' : i === n ? 'c' : ''}"></i>`).join('')}</div>`;
+        <div class="ob">${g.action ? `<button class="btn gold" data-a="tutAct">${g.action}</button>` : ''}${n < TUT_GOALS.length - 1 ? '<button class="btn tiny" data-a="tutSkip">SKIP TUTORIAL</button>' : ''}</div>
+        <div class="opips">${TUT_GOALS.map((_, i) => `<i class="${i < n ? 'd' : i === n ? 'c' : ''}"></i>`).join('')}</div>`;
       action = g.target ?? '';
     }
   } else {
-    body = `<ul class="goals">${ch.goals.map((g) => {
-      const done = goalDone(g);
-      const pr = !done && g.progress ? g.progress() : null;
-      return `<li class="${done ? 'd' : ''}"><i>${done ? 'X' : ''}</i><div><b>${g.title}</b>${!done ? `<small>${g.text}</small>` : ''}${pr ? `<span class="gp">${pr[0].toLocaleString('en-US')} / ${pr[1].toLocaleString('en-US')}</span>` : ''}</div>${!done && g.action ? `<button class="btn tiny gold" data-a="goalAct" data-v="${g.id}">GO</button>` : ''}</li>`;
+    const open = ch.goals.filter((g) => !goalDone(g));
+    const doneN = ch.goals.length - open.length;
+    body = `<div class="gsum"><span>${doneN} / ${ch.goals.length} DONE</span><i style="--p:${(doneN / ch.goals.length) * 100}%"></i></div>
+      <ul class="goals">${open.map((g, i) => {
+      const pr = g.progress ? g.progress() : null;
+      return `<li class="${i === 0 ? 'cur' : ''}"><i></i><div><b>${g.title}</b>${i === 0 ? `<small>${g.text}</small>` : ''}${pr ? `<span class="gp"><em style="width:${(pr[0] / pr[1]) * 100}%"></em><span>${pr[0].toLocaleString('en-US')} / ${pr[1].toLocaleString('en-US')}</span></span>` : ''}</div>${g.action ? `<button class="btn tiny gold" data-a="goalAct" data-v="${g.id}">GO</button>` : ''}</li>`;
     }).join('')}</ul>`;
   }
   if (chapterComplete() && idx < CHAPTERS.length - 1) {
     const next = CHAPTERS[idx + 1];
-    body += `<div class="nextch">CHAPTER ${next.num} ARRIVES ON DAY ${next.minDay}.<br><span>Expand, launder, stock up.</span></div>`;
+    const left = next.minDay - clock(state.minutes).day;
+    body += `<div class="nextch">CHAPTER ${next.num} · ${next.sin} ${left > 0 ? `ARRIVES IN ${left} DAY${left > 1 ? 'S' : ''} (DAY ${next.minDay})` : 'IS ON ITS WAY'}<br><span>Expand, launder, stock up. Answer your phone.</span></div>`;
   }
-  set('objective', `<div class="obj ${ch.guided ? 'tut' : ''}">${head}${body}</div>`);
+  set('objective', `<div class="obj ${guided ? 'tut' : ''}">${head}${body}</div>`);
   document.querySelectorAll('.tut-glow').forEach((el) => el.classList.remove('tut-glow'));
   tutTarget = action;
   if (tutTarget) document.querySelectorAll(tutTarget).forEach((el) => el.classList.add('tut-glow'));
@@ -249,6 +256,9 @@ function tutAction(goalId = currentGoal()?.id) {
     case 'press': place('press'); break;
     case 'blotter': place('blotter'); break;
     case 'boil': place('boiler'); break;
+    case 'tents2': place('tent'); break;
+    case 'barrels3': place('barrel'); break;
+    case 'ref2': place('refinery'); break;
   }
   render();
 }
@@ -263,12 +273,11 @@ function showStory(idx: number) {
   sfx('win');
   const el = $('story');
   el.innerHTML = `<div class="bars"></div><div class="scard">
-    <div class="snum">${ch.num}</div>
-    <div class="ssin">${ch.sin}</div>
-    <h1>${esc(ch.title)}</h1>
-    <div class="sfrom">${esc(ch.from)}</div>
+    <div class="shead"><div class="snum">${ch.num}</div><div><div class="ssin">CHAPTER ${ch.num} · ${ch.sin}</div><h1>${esc(ch.title)}</h1></div></div>
+    <div class="sfrom"><i></i>INCOMING CALL · ${esc(ch.from)}</div>
     ${ch.story.map((p) => `<p>${esc(p)}</p>`).join('')}
-    <div class="sunlock">UNLOCKED: <span class="pd" style="--ic:${ITEMS[ch.product].css}">${ITEMS[ch.product].name.toUpperCase()}</span></div>
+    <div class="sgoals"><b>THIS CHAPTER</b>${ch.goals.filter((g) => !g.tut).map((g) => `<span>${esc(g.title)}</span>`).join('')}${ch.guided ? '<span>...after a short tutorial</span>' : ''}</div>
+    <div class="sunlock">UNLOCKED <span class="pd" style="--ic:${ITEMS[ch.product].css}">${ITEMS[ch.product].name.toUpperCase()}</span></div>
     <button class="btn gold big" data-a="storyClose" data-v="${prev || 1}">CONTINUE</button>
   </div>`;
   el.classList.remove('hidden');
@@ -280,7 +289,7 @@ function showVictory() {
   const c = clock(state.minutes);
   $('story').innerHTML = `<div class="bars"></div><div class="scard win">
     <div class="ssin">EPILOGUE</div><h1>Kingpin</h1>
-    <p>Seven sins, one city. The gangs are gone, the cops are paid and Uncle Vic gets out next spring. He is going to have so many questions.</p>
+    <p>Seven sins, one city. The gangs are gone, the cops are paid and Uncle Vic made parole. He walks out of County, squints at the skyline and asks who owns it now. You do. He is going to have so many questions.</p>
     <div class="grid"><div><small>DAYS</small><b>${c.day}</b></div><div><small>STREET SALES</small><b>${money(state.stats.earned)}</b></div><div><small>BLOCKS TAKEN</small><b>${state.stats.taken}</b></div>
     <div><small>ARRESTS</small><b>${state.stats.arrests}</b></div><div><small>FUNERALS</small><b>${state.stats.deaths}</b></div><div><small>LAUNDERED</small><b>${money(state.stats.laundered)}</b></div></div>
     <button class="btn gold big" data-a="storyClose" data-v="1">KEEP PLAYING</button></div>`;
@@ -546,7 +555,7 @@ function phoneModal() {
   for (const m of msgs) {
     const open = ui.openMsg === m.id;
     const c = clock(m.at);
-    const left = m.options.length ? Math.max(0, Math.round((m.expires - state.minutes) / 60)) : -1;
+    const left = m.options.length && m.expires - state.minutes < 1000 * 60 ? Math.max(0, Math.round((m.expires - state.minutes) / 60)) : -1;
     h += `<div class="msg ${m.read ? '' : 'new'} ${open ? 'open' : ''}">
       <div class="mh" data-a="openMsg" data-id="${m.id}"><b>${m.read ? '' : '● '}${esc(m.from)}</b><small>DAY ${c.day} ${c.hh}:${c.mm}${left >= 0 ? ` · EXPIRES IN ${left}H` : ''}</small></div>
       ${open ? `<p class="mtxt">"${esc(m.text)}"</p><div class="btns">${m.options.map((o, i) => `<button class="btn ${i === 0 ? 'gold' : ''}" data-a="answer" data-id="${m.id}" data-v="${i}">${esc(o.label)}</button>`).join('')}${m.options.length ? '' : `<button class="btn tiny" data-a="delMsg" data-id="${m.id}">DELETE</button>`}</div>` : ''}
@@ -649,7 +658,7 @@ function cityModal() {
     const blocks = state.turf.filter((t) => t.owner === i).length;
     const dead = i > 0 && !gs.alive;
     h += `<div class="gang ${dead ? 'dead' : ''}" style="--gc:${g.css}"><div><b>${g.name.toUpperCase()}</b><small>${i === 0 ? 'THAT\'S YOU' : `BOSS: ${g.boss}`}${dead ? ' · WIPED OUT' : ''}${gs.truceUntil > state.minutes ? ' · TRUCE' : ''}</small></div>
-      <div class="gb">${seg(Math.round(blocks / 3), 10, g.css)}<small>${blocks} BLOCKS${i > 0 ? ` · STRENGTH ${gs.power.toFixed(1)}` : ''}</small></div></div>`;
+      <div class="gb">${seg(Math.round(blocks / 3), 10, g.css)}<small>${blocks} BLOCK${blocks === 1 ? '' : 'S'}${i > 0 ? ` · STRENGTH ${gs.power.toFixed(1)}` : ''}</small></div></div>`;
   }
   h += `<div class="lbl">HEAT</div><div class="kv"><span>WANTED LEVEL</span><b class="stars">${starsHtml()}</b></div>${bar(state.heat / 100, 'var(--red)')}`;
   h += `<p class="hint">2+ stars: dealers get busted. 4+ stars: the DEA raids your stash houses.</p>`;

@@ -128,6 +128,8 @@ export interface GameState {
   /** story chapter index (0-based) and highest chapter whose intro was shown */
   chapter: number;
   storySeen: number;
+  /** game minute the current chapter started (for timed story beats) */
+  chapterAt: number;
 }
 
 export interface View {
@@ -142,7 +144,7 @@ export interface View {
 }
 
 export const SAVE_KEY = 'seven-sins-v1';
-const VERSION = 4;
+const VERSION = 5;
 
 export const view: View = { scene: 'city', lot: null, selection: null, placing: null, speed: 1, started: false, crt: true, wobble: true };
 
@@ -205,6 +207,7 @@ export function newGame(): GameState {
     stats: { earned: 0, sold: 0, laundered: 0, arrests: 0, deaths: 0, hired: 0, imports: 0, taken: 0, orders: 0, made: {} },
     objectives: [],
     chapter: 0,
+    chapterAt: 0,
     storySeen: -1,
   };
   return s;
@@ -326,11 +329,17 @@ export function money(n: number): string {
   return `${sign}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 }
 
+const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
 export function clock(minutes: number) {
   const day = Math.floor(minutes / 1440) + 1;
   const m = Math.floor(minutes % 1440);
   const hour = Math.floor(m / 60);
-  return { day, hour, hh: String(hour).padStart(2, '0'), mm: String(m % 60).padStart(2, '0') };
+  // day 1 is Monday 3 March 1986
+  const d = new Date(Date.UTC(1986, 2, 2 + day));
+  const date = `${DOW[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, '0')} ${MON[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`;
+  return { day, hour, hh: String(hour).padStart(2, '0'), mm: String(m % 60).padStart(2, '0'), date };
 }
 
 export interface Station {
