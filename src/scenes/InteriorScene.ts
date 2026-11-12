@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { bus } from '../bus';
-import { BIZ, INK, NEON, PRODUCT_IDS, TILE, type BizKind, type Floor } from '../config';
+import { BIZ, INK, NEON, PRODUCT_IDS, ITILE as TILE, type BizKind, type Floor } from '../config';
 import { mulberry32 } from '../sim/rng';
 import { Pix, shade, toTexture } from '../gfx/pix';
 import { Shadows } from '../gfx/shadows';
@@ -286,6 +286,13 @@ export class InteriorScene extends Phaser.Scene {
     return out.reverse();
   }
 
+  private walkFrame(spr: Phaser.GameObjects.Image, moving: boolean) {
+    const base = (spr.getData('key') as string | undefined) ?? spr.texture.key.replace(/_w$/, '');
+    spr.setData('key', base);
+    const want = moving && Math.floor(this.t / 0.16) % 2 ? `${base}_w` : base;
+    if (spr.texture.key !== want && this.textures.exists(want)) spr.setTexture(want);
+  }
+
   private stepWalker(n: Npc, dt: number) {
     if (n.path.length) {
       const t = n.path[0];
@@ -298,9 +305,11 @@ export class InteriorScene extends Phaser.Scene {
       else { n.x += (dx / d) * mv; n.y += (dy / d) * mv; }
       const bob = Math.sin(this.t * 14 + n.seed) * 0.08;
       n.spr.setPosition(Math.round(n.x), Math.round(n.y)).setRotation(n.face + bob);
+      this.walkFrame(n.spr, true);
       return;
     }
     n.wait -= dt;
+    this.walkFrame(n.spr, false);
     n.spr.setRotation(n.face + Math.sin(this.t * 0.8 + n.seed) * 0.3);
     if (n.wait > 0) return;
     n.wait = 2 + Math.random() * 5;

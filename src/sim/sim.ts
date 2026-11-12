@@ -1,13 +1,13 @@
 import { bus, toast } from '../bus';
 import {
-  BIZ, DAY, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS, TILE,
+  BIZ, DAY, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS,
   type BizKind, type ProductId,
 } from '../config';
 import {
   bizActive, bizFx, blockOwner, clock, goonFrom, goonName, makeCandidate, map, money, nextId, playerBlocks, saveGame,
   stars, stashCap, stashTotal, state, view, type Goon, type Op, type OpKind, type Vehicle,
 } from '../state';
-import { BY, curb, neighbours, node, routeBetween, routeFromNode, routeToNode, WORLD_W, type Pt } from './cityMap';
+import { BY, curb, marinaPier, neighbours, node, routeBetween, routeFromNode, routeToNode, WORLD_W, type Pt } from './cityMap';
 import { pick, randInt } from './rng';
 import { phoneTick } from './phone';
 
@@ -54,7 +54,7 @@ export function adjacentToPlayer(block: number) {
 
 function carSpeed() {
   const lots = Object.keys(state.biz).map(Number).filter((id) => bizActive(id) && map.lots[id].kind === 'carlot');
-  return 14 * (lots.length ? 1.3 : 1);
+  return 30 * (lots.length ? 1.3 : 1);
 }
 
 /** Owned stash building block closest to `target`, falling back to any owned block. */
@@ -144,7 +144,7 @@ function goHome(op: Op) {
 function leaveMap(op: Op, from: number) {
   op.phase = 'leave';
   const j = randInt(0, BY);
-  op.vehicle!.route = [...routeToNode(from, 0, j), { x: -40, y: node(0, j).y }];
+  op.vehicle!.route = [...routeToNode(from, 0, j), { x: -80, y: node(0, j).y }];
   op.vehicle!.parked = false;
 }
 
@@ -180,7 +180,7 @@ function killGoon(g: Goon, msg: string) {
   bus.emit('changed');
 }
 
-function arrest(g: Goon, msg: string) {
+function arrest(g: Goon, msg: string, block?: number) {
   g.status = 'jail';
   g.post = null;
   g.opId = null;
@@ -188,7 +188,8 @@ function arrest(g: Goon, msg: string) {
   g.note = 'In county lockup';
   state.stats.arrests++;
   for (const op of state.ops) op.crew = op.crew.filter((id) => id !== g.id);
-  toast(msg, 'bad');
+  toast(msg, 'bad', block);
+  if (block !== undefined) bus.emit('fx', { block, kind: 'bust' });
   bus.emit('changed');
 }
 
@@ -247,7 +248,7 @@ function stepOp(op: Op, dt: number) {
         if (op.balance >= 1 && op.crew.length) winBlock(op);
         else if (op.balance <= -1 || !op.crew.length) {
           state.turf[op.block].inf = Math.min(100, state.turf[op.block].inf + 10);
-          toast(`Takeover of ${map.blocks[op.block].name} failed. The crew is falling back.`, 'bad');
+          toast(`Takeover of ${map.blocks[op.block].name} failed. The crew is falling back.`, 'bad', op.block);
           goHome(op);
           bus.emit('changed');
         }
@@ -271,12 +272,12 @@ function stepOp(op: Op, dt: number) {
           if (blockOwner(op.block) === 0 && !state.biz[op.target] && Math.random() < power / (power + resist)) {
             state.biz[op.target] = { mode: 'extorted', upgrades: [] };
             state.heat = Math.min(100, state.heat + 6);
-            toast(`${lot.name} agreed to pay for "protection".`, 'good');
+            toast(`${lot.name} agreed to pay for "protection".`, 'good', op.block);
           } else {
             state.heat = Math.min(100, state.heat + 3);
             const c = crewOf(op);
             if (c.length && Math.random() < 0.4) hurt(pick(c), op);
-            toast(`The owner of ${lot.name} told your crew to get lost.`, 'warn');
+            toast(`The owner of ${lot.name} told your crew to get lost.`, 'warn', op.block);
           }
           bus.emit('changed');
           goHome(op);
@@ -315,7 +316,7 @@ function stepOp(op: Op, dt: number) {
         const base = baseBlock(mb);
         op.phase = 'drive';
         op.block = base;
-        op.vehicle = makeVehicle('van', curb(mb), routeBetween(mb, base), 12);
+        op.vehicle = makeVehicle('van', curb(mb), routeBetween(mb, base), 26);
         state.stats.imports++;
         toast('Boat\'s in. Van is moving the load from the Marina.', 'info');
       } else if (op.phase === 'drive' && v!.parked) {
@@ -344,6 +345,7 @@ function stepOp(op: Op, dt: number) {
           op.phase = 'drive';
         } else {
           state.dirty += op.reward;
+          state.ledger.street += op.reward;
           state.stats.earned += op.reward;
           toast(`Package delivered. ${money(op.reward)} in your pocket.`, 'good');
           bus.emit('cash', { x: op.vehicle!.x, y: op.vehicle!.y, amount: op.reward });
@@ -360,7 +362,8 @@ function stepOp(op: Op, dt: number) {
         if (blockOwner(op.block) !== 0) { leaveFrom(op); break; }
         op.phase = 'work';
         op.balance = 0;
-        toast(`${GANGS[op.gang].name} are hitting ${map.blocks[op.block].name}! Send guards!`, 'bad');
+        toast(`${GANGS[op.gang].name} are hitting ${map.blocks[op.block].name}! Send guards!`, 'bad', op.block);
+        bus.emit('alarm', op.block);
         bus.emit('changed');
       } else if (op.phase === 'work') {
         if (blockOwner(op.block) !== 0) { leaveFrom(op); break; }
@@ -374,7 +377,7 @@ function stepOp(op: Op, dt: number) {
         } else if (op.balance <= -1) {
           state.gangs[op.gang].power = Math.max(0.6, state.gangs[op.gang].power - 0.08);
           state.turf[op.block].inf = Math.min(100, state.turf[op.block].inf + 10);
-          toast(`Your crew held ${map.blocks[op.block].name}. ${GANGS[op.gang].name} ran off.`, 'good');
+          toast(`Your crew held ${map.blocks[op.block].name}. ${GANGS[op.gang].name} ran off.`, 'good', op.block);
           leaveFrom(op);
           bus.emit('changed');
         }
@@ -385,8 +388,7 @@ function stepOp(op: Op, dt: number) {
       if (op.phase === 'drive' && v!.parked) {
         const g = state.goons.find((x) => x.id === op.target);
         if (g && g.status === 'posted' && g.post?.block === op.block) {
-          arrest(g, `Vice squad busted ${goonName(g)} on ${map.blocks[op.block].name}.`);
-          bus.emit('fx', { block: op.block, kind: 'bust' });
+          arrest(g, `Vice squad busted ${goonName(g)} on ${map.blocks[op.block].name}.`, op.block);
         }
         op.timer = 20;
         op.phase = 'work';
@@ -445,7 +447,7 @@ function winBlock(op: Op) {
     g.opId = null;
   }
   op.crew = [];
-  toast(`${map.blocks[op.block].name} is yours now.`, 'good');
+  toast(`${map.blocks[op.block].name} is yours now.`, 'good', op.block);
   bus.emit('fx', { block: op.block, kind: 'win' });
   if (prev > 0 && !state.turf.some((t) => t.owner === prev)) {
     state.gangs[prev].alive = false;
@@ -463,7 +465,7 @@ function loseBlock(block: number, gang: number) {
     g.note = 'Ran home';
   }
   // cancel our own ops heading there
-  toast(`${GANGS[gang].name} took ${map.blocks[block].name}.`, 'bad');
+  toast(`${GANGS[gang].name} took ${map.blocks[block].name}.`, 'bad', block);
   bus.emit('fx', { block, kind: 'lose' });
   if (!playerBlocks().length) bus.emit('gameover');
   bus.emit('changed');
@@ -509,6 +511,8 @@ function stepCorners(dt: number) {
       state.stash[prod]--;
       const amount = Math.round(PRODUCTS[prod].sell * d.price * (1 + priceBonus()) * (0.9 + Math.random() * 0.2));
       state.dirty += amount;
+      state.ledger.street += amount;
+      state.ledger.sold++;
       state.stats.earned += amount;
       state.stats.sold++;
       g.earned += amount;
@@ -549,6 +553,7 @@ function tick(dt: number) {
     const fx = bizFx(id)!;
     const inc = (def.income * fx.income * dt) / DAY;
     state.dirty += inc;
+    state.ledger.biz += inc;
     launder += fx.launder;
   }
   const amt = Math.min(state.dirty, (launder / DAY) * dt);
@@ -556,6 +561,7 @@ function tick(dt: number) {
     state.dirty -= amt;
     state.clean += amt * (1 - LAUNDER_FEE);
     state.stats.laundered += amt;
+    state.ledger.laundered += amt;
   }
 
   const hour = Math.floor(state.minutes / 60);
@@ -579,6 +585,7 @@ function heatDecayMult() {
 function hourly() {
   state.heat = Math.max(0, state.heat - 0.5 * heatDecayMult());
   const s = stars();
+  dryCheck();
 
   // healing & jail
   let heal = 1;
@@ -626,7 +633,7 @@ function hourly() {
       const fine = Math.round(state.dirty * 0.2);
       state.dirty -= fine;
       state.heat = Math.max(0, state.heat - 25);
-      toast(`DEA raided ${map.lots[id].name}! Lost ${lost} product and ${money(fine)}.`, 'bad');
+      toast(`DEA raided ${map.lots[id].name}! Lost ${lost} product and ${money(fine)}.`, 'bad', map.lots[id].block);
       bus.emit('fx', { block: map.lots[id].block, kind: 'bust' });
       break;
     }
@@ -639,8 +646,8 @@ function hourly() {
 function dispatchCops(g: Goon) {
   const block = g.post!.block;
   const j = randInt(0, BY);
-  const start = { x: -40, y: node(0, j).y };
-  const v = makeVehicle('cop', start, routeFromNode(0, j, block), 20);
+  const start = { x: -80, y: node(0, j).y };
+  const v = makeVehicle('cop', start, routeFromNode(0, j, block), 44);
   const op = newOp('bust', -1, [], g.id, block, v);
   op.target = g.id;
 }
@@ -660,14 +667,14 @@ function rivalAI() {
     if (mine.length && !attacking && !truce && Math.random() < 0.65 && state.minutes > 30 * 60) {
       const target = pick(mine);
       const from = theirs.find((b) => neighbours(map, b).includes(target)) ?? pick(theirs);
-      const v = makeVehicle('rival', curb(from), routeBetween(from, target), 15);
+      const v = makeVehicle('rival', curb(from), routeBetween(from, target), 32);
       const op = newOp('attack', gi, [], target, target, v);
       op.power = 5 * gs.power * (0.8 + Math.random() * 0.6);
       bus.emit('changed');
     } else if (neutral.length && Math.random() < 0.5) {
       const target = pick(neutral);
       state.turf[target] = { owner: gi, inf: 40 };
-      toast(`${GANGS[gi].name} moved into ${map.blocks[target].name}.`, 'warn');
+      toast(`${GANGS[gi].name} moved into ${map.blocks[target].name}.`, 'warn', target);
     }
   }
 }
@@ -698,7 +705,9 @@ function daily() {
   for (const k of Object.keys(state.biz)) if (bizActive(Number(k))) recruits += bizFx(Number(k))!.recruits;
   state.candidates = Array.from({ length: Math.min(8, recruits) }, () => makeCandidate());
   const c = clock(state.minutes);
-  toast(`DAY ${c.day}. Paid ${money(total - owed)} in wages.`, 'info');
+  const L = state.ledger;
+  bus.emit('report', { day: c.day - 1, street: L.street, biz: L.biz, laundered: L.laundered, sold: L.sold, wages: total - owed, net: L.street + L.biz - (total - owed) });
+  state.ledger = { street: 0, biz: 0, laundered: 0, sold: 0 };
   saveGame();
   bus.emit('saved');
 }
@@ -771,7 +780,7 @@ export function orderFromSal(order: Record<ProductId, number>, unitPrice?: Parti
   state.dirty -= cost;
   const base = baseBlock();
   const j = randInt(0, BY);
-  const v = makeVehicle('van', { x: -40, y: node(0, j).y }, routeFromNode(0, j, base), 12);
+  const v = makeVehicle('van', { x: -80, y: node(0, j).y }, routeFromNode(0, j, base), 26);
   const op = newOp('delivery', -1, [], base, base, v);
   op.cargo = { ...order };
   state.stats.orders++;
@@ -787,9 +796,9 @@ export function importShipment(order: Record<ProductId, number>) {
   if (state.dirty < cost) { toast('Not enough dirty cash for the shipment.', 'warn'); return false; }
   state.dirty -= cost;
   const ml = map.lots[map.marinaLot];
-  const dock = { x: (ml.x + ml.w + 9) * TILE, y: (ml.y + ml.h / 2) * TILE };
+  const dock = marinaPier(ml);
   const fast = state.biz[map.marinaLot].upgrades.includes('speedboat');
-  const v = makeVehicle('boat', { x: WORLD_W + 60, y: dock.y - 120 }, [{ x: WORLD_W - 120, y: dock.y - 60 }, dock], fast ? 2.2 : 1.1);
+  const v = makeVehicle('boat', { x: WORLD_W + 80, y: dock.y - 200 }, [{ x: WORLD_W - 60, y: dock.y - 60 }, dock], fast ? 5 : 2.5);
   const op = newOp('import', 0, [], map.marinaLot, ml.block, v);
   op.phase = 'sail';
   op.cargo = { ...order };
@@ -913,4 +922,15 @@ export function checkObjectives() {
     }
     break;
   }
+}
+
+let lastDryWarn = -1e9;
+
+function dryCheck() {
+  const dealers = state.goons.some((g) => g.status === 'posted' && g.post?.kind === 'corner');
+  if (!dealers || stashTotal() > 0 || state.minutes - lastDryWarn < 6 * 60) return;
+  if (state.ops.some((o) => o.kind === 'delivery' || o.kind === 'import')) return;
+  lastDryWarn = state.minutes;
+  toast('Your corners are dry. Hit BUY PRODUCT and call Sal.', 'warn');
+  bus.emit('dry');
 }

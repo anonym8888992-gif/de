@@ -13,6 +13,7 @@ import { map, state, view } from './state';
 import { initUI } from './ui/ui';
 
 let signs: Sign[] = [];
+let game: Phaser.Game | null = null;
 
 class BootScene extends Phaser.Scene {
   constructor() {
@@ -99,7 +100,7 @@ const fontsReady = Promise.race([
 ]).catch(() => undefined);
 
 fontsReady.then(() => {
-  new Phaser.Game({
+  game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
     backgroundColor: '#0b0614',
@@ -111,4 +112,4 @@ fontsReady.then(() => {
   initUI();
 });
 
-if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__nk = { get state() { return state; }, view, bus, map };
+if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__nk = { get state() { return state; }, view, bus, map, get game() { return game; } };

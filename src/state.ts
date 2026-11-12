@@ -122,6 +122,7 @@ export interface GameState {
   nextId: number;
   nextCall: number;
   stats: { earned: number; sold: number; laundered: number; arrests: number; deaths: number; hired: number; imports: number; taken: number; orders: number };
+  ledger: { street: number; biz: number; laundered: number; sold: number };
   objectives: string[];
 }
 
@@ -135,8 +136,8 @@ export interface View {
   wobble: boolean;
 }
 
-export const SAVE_KEY = 'neon-kingpin-v1';
-const VERSION = 1;
+export const SAVE_KEY = 'neon-kingpin-v2';
+const VERSION = 2;
 
 export const view: View = { scene: 'city', lot: null, selection: null, speed: 1, started: false, crt: true, wobble: true };
 
@@ -187,7 +188,8 @@ export function newGame(): GameState {
     biz: { [map.starterLot]: { mode: 'owned', upgrades: [] } },
     goons: [],
     ops: [],
-    stash: { green: 10, candy: 0, snow: 0 },
+    stash: { green: 30, candy: 10, snow: 0 },
+    ledger: { street: 0, biz: 0, laundered: 0, sold: 0 },
     heat: 5,
     bribes: 0,
     gangs: GANGS.map((_, i) => ({ power: i === 0 ? 0 : 1, alive: i !== 0, truceUntil: 0, aggression: [0, 0.8, 0.6, 1][i], nextMove: 26 * 60 + i * 180 })),

@@ -2,6 +2,14 @@ import Phaser from 'phaser';
 import { INK, NEON } from '../config';
 import { Pix, shade, toTexture } from './pix';
 
+/*
+ * World scale is ~10px per metre. People are ~9px across the shoulders,
+ * cars 36x16 (3.6m x 1.6m), palms ~5m crowns.
+ */
+export const CAR_W = 36;
+export const CAR_H = 16;
+const P = 11; // person canvas
+
 function mk(scene: Phaser.Scene, key: string, w: number, h: number, draw: (p: Pix) => void, outline = true) {
   const p = new Pix(w, h);
   draw(p);
@@ -10,117 +18,125 @@ function mk(scene: Phaser.Scene, key: string, w: number, h: number, draw: (p: Pi
 }
 
 // ---------------------------------------------------------------------------
-// people (12x12, facing +x)
+// people (facing +x). Two frames: idle/stride A and stride B.
 
 export interface Look {
   shirt: number;
   skin: number;
   hair: number;
-  extra?: 'shades' | 'cap' | 'mask' | 'stripe' | 'bald';
+  pants?: number;
+  extra?: 'shades' | 'cap' | 'mask' | 'stripe' | 'bald' | 'jacket';
   accent?: number;
 }
 
 const SKINS = [0xf2c29b, 0xd9a07a, 0xb27650, 0x8a5636, 0x6b3f26, 0xf7d6bd];
 const HAIRS = [0x2a1a10, 0x5a3418, 0xe8c46a, 0x1a1a1a, 0x8a2a1a, 0xbfbfbf];
 
-function person(p: Pix, l: Look) {
-  // arms reaching forward
-  p.rect(7, 1, 3, 2, shade(l.shirt, -0.15));
-  p.rect(7, 9, 3, 2, shade(l.shirt, -0.15));
-  p.rect(10, 1, 1, 2, l.skin);
-  p.rect(10, 9, 1, 2, l.skin);
-  // shoulders
-  p.ellipse(5.5, 6, 3.2, 5.2, l.shirt);
-  p.rect(2, 2, 2, 8, shade(l.shirt, -0.3));
-  if (l.extra === 'stripe') p.rect(4, 1, 1, 10, l.accent ?? NEON.white);
-  if (l.accent && l.extra !== 'stripe') p.rect(6, 3, 1, 6, l.accent);
+function person(p: Pix, l: Look, frame: number) {
+  const cy = 5;
+  const sw = frame ? 2 : 0; // arm swing
+  const arm = shade(l.shirt, -0.2);
+  // arms (one forward, one back when walking)
+  p.rect(5 + sw, cy - 4, 3, 2, arm);
+  p.rect(5 - sw, cy + 3, 3, 2, arm);
+  p.set(8 + sw, cy - 4, l.skin);
+  p.set(8 - sw, cy + 3, l.skin);
+  // shoulders / torso seen from above
+  p.rect(2, cy - 3, 5, 7, l.shirt);
+  p.rect(3, cy - 4, 3, 9, l.shirt);
+  p.rect(2, cy - 3, 1, 7, shade(l.shirt, -0.35));
+  if (l.extra === 'stripe') p.rect(4, cy - 4, 1, 9, l.accent ?? NEON.white);
+  if (l.extra === 'jacket') { p.rect(5, cy - 3, 1, 7, l.accent ?? 0xffffff); }
   // head
-  p.disc(6, 6, 2.6, l.skin);
+  p.rect(3, cy - 1, 4, 3, l.skin);
+  p.rect(4, cy - 2, 2, 5, l.skin);
   if (l.extra !== 'bald') {
-    p.rect(3, 4, 3, 4, l.hair);
-    p.rect(4, 3, 3, 1, l.hair);
-    p.rect(4, 8, 3, 1, l.hair);
+    p.rect(3, cy - 1, 2, 3, l.hair);
+    p.rect(4, cy - 2, 1, 5, l.hair);
   }
-  if (l.extra === 'cap') {
-    p.disc(5.5, 6, 2.8, l.accent ?? 0x1b2a6b);
-    p.rect(8, 4, 2, 4, l.accent ?? 0x1b2a6b);
-  }
-  if (l.extra === 'mask') {
-    p.disc(6, 6, 2.8, l.accent ?? NEON.pink);
-    p.set(8, 5, INK);
-    p.set(8, 7, INK);
-  }
-  if (l.extra === 'shades') p.rect(8, 4, 1, 4, INK);
+  if (l.extra === 'cap') { p.rect(3, cy - 2, 3, 5, l.accent ?? 0x1b2a6b); p.rect(6, cy - 1, 2, 3, l.accent ?? 0x1b2a6b); }
+  if (l.extra === 'mask') { p.rect(3, cy - 2, 4, 5, l.accent ?? NEON.pink); p.set(6, cy - 1, INK); p.set(6, cy + 1, INK); }
+  if (l.extra === 'shades') p.rect(6, cy - 1, 1, 3, INK);
 }
 
 export const CREW_LOOKS: Look[] = [
   { shirt: 0xffe14d, skin: SKINS[1], hair: HAIRS[0], extra: 'shades' },
-  { shirt: 0xf4f4f4, skin: SKINS[2], hair: HAIRS[3], extra: 'shades', accent: 0xffe14d },
+  { shirt: 0xf4f4f4, skin: SKINS[2], hair: HAIRS[3], extra: 'jacket', accent: 0xffe14d },
   { shirt: 0x2de2e6, skin: SKINS[0], hair: HAIRS[2], extra: 'stripe', accent: 0xffe14d },
   { shirt: 0xffe14d, skin: SKINS[3], hair: HAIRS[0], extra: 'stripe', accent: INK },
-  { shirt: 0xff8fc8, skin: SKINS[5], hair: HAIRS[4], extra: 'shades', accent: 0xffe14d },
-  { shirt: 0x3a3a46, skin: SKINS[4], hair: HAIRS[3], extra: 'bald', accent: 0xffe14d },
+  { shirt: 0xff8fc8, skin: SKINS[5], hair: HAIRS[4], extra: 'shades' },
+  { shirt: 0x3a3a46, skin: SKINS[4], hair: HAIRS[3], extra: 'jacket', accent: 0xffe14d },
 ];
 
 const GANG_SHIRT = [0xffe14d, 0xff2a8a, 0x2de2e6, 0xff8a1f];
 
+function personTex(scene: Phaser.Scene, key: string, l: Look) {
+  mk(scene, key, P, P, (p) => person(p, l, 0));
+  mk(scene, `${key}_w`, P, P, (p) => person(p, l, 1));
+}
+
 export function generateSprites(scene: Phaser.Scene) {
-  CREW_LOOKS.forEach((l, i) => mk(scene, `crew${i}`, 12, 12, (p) => person(p, l)));
+  CREW_LOOKS.forEach((l, i) => personTex(scene, `crew${i}`, l));
   for (let g = 1; g <= 3; g++) {
     for (let v = 0; v < 2; v++) {
-      mk(scene, `gang${g}_${v}`, 12, 12, (p) => person(p, {
+      personTex(scene, `gang${g}_${v}`, {
         shirt: GANG_SHIRT[g], skin: SKINS[(g * 2 + v) % SKINS.length], hair: HAIRS[(g + v) % 4],
-        extra: v ? 'shades' : 'stripe', accent: v ? undefined : INK,
-      }));
+        extra: v ? 'shades' : 'mask', accent: v ? undefined : shade(GANG_SHIRT[g], -0.4),
+      });
     }
   }
   const civShirts = [0x3d7dd8, 0xd94848, 0x8f8f8f, 0xf2a03d, 0x3fb57a, 0x9a5fd1, 0xf7f0e0, 0x6fd1d8, 0xf27ab0, 0x48486a];
-  civShirts.forEach((c, i) => mk(scene, `civ${i}`, 12, 12, (p) => person(p, { shirt: c, skin: SKINS[i % SKINS.length], hair: HAIRS[i % HAIRS.length] })));
-  mk(scene, 'copman', 12, 12, (p) => person(p, { shirt: 0x24356e, skin: SKINS[0], hair: HAIRS[0], extra: 'cap', accent: 0x101a40 }));
+  civShirts.forEach((c, i) => personTex(scene, `civ${i}`, { shirt: c, skin: SKINS[i % SKINS.length], hair: HAIRS[i % HAIRS.length], extra: i % 4 === 3 ? 'cap' : undefined, accent: 0xffffff }));
+  personTex(scene, 'copman', { shirt: 0x24356e, skin: SKINS[0], hair: HAIRS[0], extra: 'cap', accent: 0x101a40 });
+  mk(scene, 'body', 14, 10, (p) => {
+    p.rect(1, 3, 9, 4, 0x6a6a7a);
+    p.rect(9, 2, 4, 5, SKINS[1]);
+    p.rect(0, 1, 4, 2, 0x5a5a6a);
+    p.rect(0, 7, 4, 2, 0x5a5a6a);
+  });
 
-  // ---- cars (24x12, facing +x) ----
+  // ---- vehicles ----
   const civCars = [0xe8e0d0, 0xd94848, 0x3d7dd8, 0x2a2a34, 0xf2c14e, 0x6fd1d8, 0xf27ab0, 0x5aa65a, 0xbfbfc8, 0x8a4fd8];
-  civCars.forEach((c, i) => mk(scene, `car${i}`, 24, 12, (p) => car(p, c)));
-  mk(scene, 'car_crew', 24, 12, (p) => car(p, 0xffe14d, INK));
-  for (let g = 1; g <= 3; g++) mk(scene, `car_gang${g}`, 24, 12, (p) => car(p, 0x24202e, GANG_SHIRT[g]));
-  mk(scene, 'cop0', 24, 12, (p) => cop(p, 0));
-  mk(scene, 'cop1', 24, 12, (p) => cop(p, 1));
-  mk(scene, 'van', 26, 12, (p) => van(p));
-  mk(scene, 'boat', 36, 14, (p) => boat(p, 0xf4f4f4, NEON.pink));
-  mk(scene, 'boat2', 36, 14, (p) => boat(p, 0xf4f4f4, NEON.cyan));
-  mk(scene, 'boat3', 30, 12, (p) => boat(p, 0xffe14d, INK));
+  civCars.forEach((c, i) => mk(scene, `car${i}`, CAR_W, CAR_H, (p) => car(p, c)));
+  mk(scene, 'car_crew', CAR_W, CAR_H, (p) => car(p, 0xffe14d, INK, true));
+  for (let g = 1; g <= 3; g++) mk(scene, `car_gang${g}`, CAR_W, CAR_H, (p) => car(p, 0x24202e, GANG_SHIRT[g], true));
+  mk(scene, 'cop0', CAR_W, CAR_H, (p) => cop(p, 0));
+  mk(scene, 'cop1', CAR_W, CAR_H, (p) => cop(p, 1));
+  mk(scene, 'van', 42, 18, (p) => van(p));
+  mk(scene, 'boat', 56, 20, (p) => boat(p, 0xf4f4f4, NEON.pink));
+  mk(scene, 'boat2', 56, 20, (p) => boat(p, 0xf4f4f4, NEON.cyan));
+  mk(scene, 'boat3', 60, 20, (p) => boat(p, 0xffe14d, INK));
 
-  // ---- palm (28x28) ----
-  for (let v = 0; v < 3; v++) mk(scene, `palm${v}`, 30, 30, (p) => palm(p, v));
+  // ---- palms ----
+  [44, 52, 60].forEach((s, v) => mk(scene, `palm${v}`, s, s, (p) => palm(p, v, s)));
 
   // ---- fx ----
-  mk(scene, 'flash', 11, 11, (p) => {
-    p.line(5, 0, 5, 10, NEON.yellow);
-    p.line(0, 5, 10, 5, NEON.yellow);
-    p.line(1, 1, 9, 9, 0xffa040);
-    p.line(9, 1, 1, 9, 0xffa040);
-    p.disc(5.5, 5.5, 2, NEON.white);
+  mk(scene, 'flash', 9, 9, (p) => {
+    p.line(4, 0, 4, 8, NEON.yellow);
+    p.line(0, 4, 8, 4, NEON.yellow);
+    p.line(1, 1, 7, 7, 0xffa040);
+    p.line(7, 1, 1, 7, 0xffa040);
+    p.rect(3, 3, 3, 3, NEON.white);
   }, false);
-  mk(scene, 'blood', 10, 10, (p) => {
-    p.disc(5, 5, 3, 0x9a0c1e);
-    p.set(1, 2, 0x9a0c1e);
-    p.set(8, 8, 0x9a0c1e);
-    p.set(9, 3, 0x9a0c1e);
+  mk(scene, 'blood', 14, 14, (p) => {
+    p.disc(7, 7, 4, 0x9a0c1e);
+    for (const [x, y] of [[1, 3], [12, 11], [12, 4], [3, 12], [7, 1]]) p.rect(x, y, 2, 2, 0x9a0c1e);
+    p.rect(5, 5, 3, 2, 0xc01a2e);
   }, false);
   mk(scene, 'px', 2, 2, (p) => p.rect(0, 0, 2, 2, 0xffffff), false);
-  mk(scene, 'hq', 13, 15, (p) => {
-    p.rect(1, 1, 11, 9, NEON.yellow);
-    p.rect(5, 10, 3, 4, NEON.yellow);
-    p.text('HQ', 3, 3, INK);
+  mk(scene, 'hq', 21, 23, (p) => {
+    p.rect(1, 1, 19, 15, NEON.yellow);
+    p.rect(8, 16, 5, 6, NEON.yellow);
+    p.text('HQ', 3, 3, INK, 2);
   });
-  mk(scene, 'selring', 20, 20, (p) => {
+  mk(scene, 'selring', 24, 24, (p) => {
     for (let a = 0; a < 64; a++) {
       const t = (a / 64) * Math.PI * 2;
-      if (a % 8 < 5) p.set(10 + Math.cos(t) * 8.5, 10 + Math.sin(t) * 8.5, NEON.yellow);
+      if (a % 8 < 5) p.set(12 + Math.cos(t) * 10.5, 12 + Math.sin(t) * 10.5, NEON.yellow);
     }
   }, false);
 
-  // soft glows for night lights (these are allowed to be smooth: they're light, not art)
+  // soft glows for lights (light, not art, so these stay smooth)
   glow(scene, 'glow', 'rgba(255,220,160,1)');
   glow(scene, 'glow_pink', 'rgba(255,42,138,1)');
   glow(scene, 'glow_cyan', 'rgba(45,226,230,1)');
@@ -146,46 +162,62 @@ function glow(scene: Phaser.Scene, key: string, color: string) {
   t.refresh();
 }
 
-function car(p: Pix, body: number, stripe?: number) {
-  p.rect(1, 1, 22, 10, body);
-  // cut corners
-  for (const [x, y] of [[1, 1], [22, 1], [1, 10], [22, 10]]) p.data[y * p.w + x] = 0;
-  p.rect(1, 8, 22, 2, shade(body, -0.25));
-  p.rect(1, 2, 22, 1, shade(body, 0.25));
-  // roof & glass
-  p.rect(8, 2, 8, 8, shade(body, 0.12));
-  p.rect(15, 2, 3, 8, 0x1b2440);
-  p.rect(6, 3, 2, 6, 0x1b2440);
-  p.set(16, 3, 0x6f8fd0);
-  p.set(16, 4, 0x6f8fd0);
+/** Top-down car facing +x, sized to the canvas. */
+export function car(p: Pix, body: number, stripe?: number, tinted = false) {
+  const w = p.w;
+  const h = p.h;
+  p.rect(1, 1, w - 2, h - 2, body);
+  for (const [x, y] of [[1, 1], [w - 2, 1], [1, h - 2], [w - 2, h - 2], [2, 1], [1, 2], [w - 3, 1], [w - 2, 2], [2, h - 2], [1, h - 3], [w - 3, h - 2], [w - 2, h - 3]]) p.data[y * w + x] = 0;
+  // side shading
+  p.rect(2, 1, w - 4, 1, shade(body, 0.35));
+  p.rect(2, h - 3, w - 4, 2, shade(body, -0.3));
+  // hood & trunk lines
+  const rx0 = Math.round(w * 0.3);
+  const rx1 = Math.round(w * 0.72);
+  // windshield, roof, rear window
+  p.rect(rx1, 3, 4, h - 6, tinted ? 0x0e0a18 : 0x1b2440);
+  p.set(rx1 + 1, 4, 0x8ab0f0);
+  p.set(rx1 + 1, 5, 0x8ab0f0);
+  p.rect(rx0 + 3, 3, rx1 - rx0 - 3, h - 6, shade(body, 0.12));
+  p.rect(rx0, 3, 3, h - 6, tinted ? 0x0e0a18 : 0x1b2440);
+  // side mirrors
+  p.set(rx1 + 2, 0, shade(body, -0.3));
+  p.set(rx1 + 2, h - 1, shade(body, -0.3));
   if (stripe !== undefined) {
-    p.rect(1, 5, 7, 2, stripe);
-    p.rect(18, 5, 5, 2, stripe);
+    p.rect(3, Math.floor(h / 2) - 1, rx0 - 3, 2, stripe);
+    p.rect(rx1 + 4, Math.floor(h / 2) - 1, w - rx1 - 6, 2, stripe);
   }
-  p.set(22, 2, 0xfff2a0);
-  p.set(22, 9, 0xfff2a0);
-  p.set(1, 2, 0xff3030);
-  p.set(1, 9, 0xff3030);
+  // lights
+  p.rect(w - 2, 2, 1, 2, 0xfff2a0);
+  p.rect(w - 2, h - 4, 1, 2, 0xfff2a0);
+  p.rect(1, 2, 1, 2, 0xff3030);
+  p.rect(1, h - 4, 1, 2, 0xff3030);
 }
 
 function cop(p: Pix, f: number) {
   car(p, 0x1a1a24);
-  p.rect(8, 1, 8, 10, 0xf4f4f4);
-  p.rect(15, 2, 3, 8, 0x1b2440);
-  p.rect(11, 2, 2, 4, f ? 0xff3030 : 0x601010);
-  p.rect(11, 6, 2, 4, f ? 0x203070 : 0x3070ff);
+  const w = p.w;
+  const h = p.h;
+  p.rect(Math.round(w * 0.3), 1, Math.round(w * 0.42) + 3, h - 2, 0xf4f4f4);
+  p.rect(Math.round(w * 0.72), 3, 4, h - 6, 0x1b2440);
+  p.rect(Math.round(w * 0.3), 3, 3, h - 6, 0x1b2440);
+  const lx = Math.round(w * 0.5);
+  p.rect(lx, 2, 3, Math.floor(h / 2) - 2, f ? 0xff3030 : 0x601010);
+  p.rect(lx, Math.floor(h / 2), 3, Math.floor(h / 2) - 2, f ? 0x203070 : 0x3070ff);
 }
 
 function van(p: Pix) {
-  p.rect(1, 1, 24, 10, 0xf4f0e8);
-  for (const [x, y] of [[1, 1], [24, 1], [1, 10], [24, 10]]) p.data[y * p.w + x] = 0;
-  p.rect(1, 8, 24, 2, 0xc9c0b0);
-  p.rect(19, 2, 3, 8, 0x1b2440);
-  p.rect(2, 4, 16, 1, NEON.pink);
-  p.rect(2, 7, 16, 1, NEON.cyan);
-  p.rect(5, 2, 6, 1, 0xd9d0c0);
-  p.set(24, 2, 0xfff2a0);
-  p.set(24, 9, 0xfff2a0);
+  const w = p.w;
+  const h = p.h;
+  p.rect(1, 1, w - 2, h - 2, 0xf4f0e8);
+  for (const [x, y] of [[1, 1], [w - 2, 1], [1, h - 2], [w - 2, h - 2]]) p.data[y * w + x] = 0;
+  p.rect(1, h - 3, w - 2, 2, 0xc9c0b0);
+  p.rect(w - 9, 3, 4, h - 6, 0x1b2440);
+  p.rect(w - 5, 2, 3, h - 4, 0xe0dcd0);
+  p.rect(3, 5, w - 14, 2, NEON.pink);
+  p.rect(3, h - 7, w - 14, 2, NEON.cyan);
+  p.rect(w - 2, 2, 1, 2, 0xfff2a0);
+  p.rect(w - 2, h - 4, 1, 2, 0xfff2a0);
 }
 
 function boat(p: Pix, hull: number, stripe: number) {
@@ -197,32 +229,37 @@ function boat(p: Pix, hull: number, stripe: number) {
     p.rect(x, 1 + taper, 1, h - 2 - taper * 2, hull);
   }
   p.rect(1, mid - 1, w * 0.7, 2, stripe);
-  p.rect(5, 3, w * 0.35, h - 6, 0xb07a48);
-  p.rect(w * 0.5, 3, 3, h - 6, 0x1b2440);
+  p.rect(6, 4, w * 0.3, h - 8, 0xb07a48);
+  p.rect(w * 0.45, 4, 4, h - 8, 0x1b2440);
+  p.rect(2, 2, 3, h - 4, shade(hull, -0.2));
 }
 
-function palm(p: Pix, v: number) {
-  const c = 15;
+function palm(p: Pix, v: number, size: number) {
+  const c = size / 2;
   const greens = [0x1f7a3a, 0x37b04c, 0x7be06a];
-  const n = 7 + v;
+  const n = 8 + v;
+  const R = size / 2 - 3;
   for (let k = 0; k < n; k++) {
     const a = (k / n) * Math.PI * 2 + v * 0.4;
-    const len = 12 + ((k * 7 + v) % 3);
-    for (let t = 2; t < len; t++) {
-      const bend = Math.sin(t / len * Math.PI) * 1.5;
+    const len = R - ((k * 7 + v) % 4);
+    for (let t = 3; t < len; t++) {
+      const bend = Math.sin((t / len) * Math.PI) * 2.5;
       const x = c + Math.cos(a) * t - Math.sin(a) * bend;
       const y = c + Math.sin(a) * t + Math.cos(a) * bend;
-      const wdt = t < len - 3 ? 1.3 : 0.6;
-      p.disc(x, y, wdt, t > len * 0.6 ? greens[1] : greens[0]);
-      if (t % 2 === 0) p.set(x - Math.sin(a) * 2, y + Math.cos(a) * 2, greens[2]);
+      const wdt = t < len * 0.75 ? 1.6 : 0.8;
+      p.disc(x, y, wdt, t > len * 0.55 ? greens[1] : greens[0]);
+      if (t % 3 === 0) {
+        p.set(x - Math.sin(a) * 3, y + Math.cos(a) * 3, greens[2]);
+        p.set(x + Math.sin(a) * 3, y - Math.cos(a) * 3, greens[1]);
+      }
     }
   }
-  p.disc(c, c, 2.2, 0x8a5a2a);
-  p.set(c - 1, c - 1, 0xc08a4a);
+  p.disc(c, c, 3, 0x8a5a2a);
+  p.rect(c - 2, c - 2, 2, 2, 0xc08a4a);
 }
 
 // ---------------------------------------------------------------------------
-// furniture for interiors (top-down)
+// furniture for interiors (top-down, ITILE = 16px grid)
 
 function generateFurniture(scene: Phaser.Scene) {
   mk(scene, 'f_bed', 16, 26, (p) => {
@@ -327,22 +364,22 @@ function generateFurniture(scene: Phaser.Scene) {
     p.rect(2, 2, 10, 6, 0x4a8ad8);
     p.rect(3, 3, 3, 2, 0xf4f4f4);
   });
-  mk(scene, 'f_lift', 30, 18, (p) => {
-    p.rect(0, 0, 30, 18, 0xd9b84a);
-    p.rect(2, 2, 26, 14, 0x3a3a46);
-    p.rect(0, 0, 30, 2, 0x1a1a1a);
-    p.checker(0, 0, 30, 2, NEON.yellow, 2);
-    const c = new Pix(24, 12);
+  mk(scene, 'f_lift', 44, 24, (p) => {
+    p.rect(0, 0, 44, 24, 0xd9b84a);
+    p.rect(2, 2, 40, 20, 0x3a3a46);
+    p.rect(0, 0, 44, 2, 0x1a1a1a);
+    p.checker(0, 0, 44, 2, NEON.yellow, 2);
+    const c = new Pix(CAR_W, CAR_H);
     car(c, 0xd94848);
-    p.blit(c, 3, 3);
+    p.blit(c, 4, 4);
   });
-  mk(scene, 'f_booth', 34, 30, (p) => {
-    p.rect(0, 0, 34, 30, 0x8a96a8);
-    p.rect(2, 2, 30, 26, 0xc0c8d8);
-    const c = new Pix(24, 12);
+  mk(scene, 'f_booth', 48, 32, (p) => {
+    p.rect(0, 0, 48, 32, 0x8a96a8);
+    p.rect(2, 2, 44, 28, 0xc0c8d8);
+    const c = new Pix(CAR_W, CAR_H);
     car(c, 0x3d7dd8);
-    p.blit(c, 5, 9);
-    p.dither(2, 2, 30, 26, NEON.pink, 0.06, Math.random);
+    p.blit(c, 6, 8);
+    p.dither(2, 2, 44, 28, NEON.pink, 0.06, Math.random);
   });
   mk(scene, 'f_forklift', 16, 24, (p) => {
     p.rect(2, 6, 12, 16, NEON.orange);
@@ -354,7 +391,7 @@ function generateFurniture(scene: Phaser.Scene) {
     p.rect(0, 17, 2, 4, INK);
     p.rect(14, 17, 2, 4, INK);
   });
-  mk(scene, 'f_boat', 36, 14, (p) => boat(p, 0xffffff, NEON.pink));
+  mk(scene, 'f_boat', 56, 20, (p) => boat(p, 0xffffff, NEON.pink));
   mk(scene, 'f_jukebox', 14, 12, (p) => {
     p.rect(0, 0, 14, 12, 0x8a3a1a);
     p.rect(1, 1, 12, 10, NEON.orange);
@@ -389,9 +426,9 @@ function generateFurniture(scene: Phaser.Scene) {
   mk(scene, 'f_brick_green', 6, 4, (p) => { p.rect(0, 0, 6, 4, 0x3fa040); p.rect(1, 1, 4, 1, 0x7dff6a); });
   mk(scene, 'f_brick_candy', 6, 4, (p) => { p.rect(0, 0, 6, 4, 0xc03a9a); p.rect(1, 1, 4, 1, 0xff8fd8); });
   mk(scene, 'f_brick_snow', 6, 4, (p) => { p.rect(0, 0, 6, 4, 0xd8e0f0); p.rect(1, 1, 4, 1, 0xffffff); });
-  mk(scene, 'f_car', 24, 12, (p) => car(p, 0xf27ab0));
-  mk(scene, 'f_car2', 24, 12, (p) => car(p, 0x6fd1d8));
-  mk(scene, 'f_car3', 24, 12, (p) => car(p, 0xf4f4f4, NEON.orange));
+  mk(scene, 'f_car', CAR_W, CAR_H, (p) => car(p, 0xf27ab0));
+  mk(scene, 'f_car2', CAR_W, CAR_H, (p) => car(p, 0x6fd1d8));
+  mk(scene, 'f_car3', CAR_W, CAR_H, (p) => car(p, 0xf4f4f4, NEON.orange));
   mk(scene, 'f_slot', 16, 16, (p) => {
     for (let i = 0; i < 16; i++) {
       if (i % 4 < 2) {
@@ -405,4 +442,3 @@ function generateFurniture(scene: Phaser.Scene) {
     p.rect(4, 7, 8, 2, NEON.yellow);
   }, false);
 }
-export { car as drawCar, palm as drawPalm };

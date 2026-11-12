@@ -4,8 +4,8 @@ import { mulberry32, pick, shuffle } from './rng';
 export const BX = 6;
 export const BY = 5;
 export const CITY_W = 2 + BX * BLOCK; // 74 tiles
-export const BEACH = 4;
-export const OCEAN = 18;
+export const BEACH = 6;
+export const OCEAN = 12;
 export const MAP_W = CITY_W + BEACH + OCEAN;
 export const MAP_H = 2 + BY * BLOCK;
 export const WORLD_W = MAP_W * TILE;
@@ -118,8 +118,8 @@ export function generateCity(seed = 1986): CityMap {
           if (rng() < 0.6) palms.push({ x: (x + 2.5 + k * 1.9) * TILE, y: (y + 9.5) * TILE, s: 0.8 + rng() * 0.4 });
         }
       }
-      lamps.push({ x: x * TILE + 4, y: y * TILE + 4 }, { x: (x + 10) * TILE - 4, y: y * TILE + 4 });
-      lamps.push({ x: x * TILE + 4, y: (y + 10) * TILE - 4 }, { x: (x + 10) * TILE - 4, y: (y + 10) * TILE - 4 });
+      lamps.push({ x: x * TILE + 6, y: y * TILE + 6 }, { x: (x + 10) * TILE - 6, y: y * TILE + 6 });
+      lamps.push({ x: x * TILE + 6, y: (y + 10) * TILE - 6 }, { x: (x + 10) * TILE - 6, y: (y + 10) * TILE - 6 });
     }
   }
 
@@ -154,7 +154,7 @@ export function generateCity(seed = 1986): CityMap {
 
   // beach palms
   for (let ty = 2; ty < MAP_H - 2; ty += 3) {
-    if (rng() < 0.7) palms.push({ x: (CITY_W + 0.6 + rng() * 1.2) * TILE, y: (ty + rng()) * TILE, s: 1 + rng() * 0.4 });
+    if (rng() < 0.7) palms.push({ x: (CITY_W + 1.2 + rng() * 1.6) * TILE, y: (ty + rng()) * TILE, s: 1 + rng() * 0.4 });
   }
 
   return { blocks, lots, lotAt, blockAt, palms, lamps, starterLot: starter.id, marinaLot: marina.id };
@@ -242,3 +242,10 @@ export function routeToNode(from: number, i: number, j: number): Pt[] {
 function dedupe(p: Pt[]) {
   return p.filter((q, i) => i === 0 || q.x !== p[i - 1].x || q.y !== p[i - 1].y);
 }
+
+/** End of the marina's middle pier, where import boats tie up. Shared by art and sim. */
+export function marinaPier(lot: Lot): Pt {
+  return { x: (CITY_W + BEACH) * TILE + 170, y: lot.y * TILE + 126 };
+}
+
+export const PIER_END = (CITY_W + BEACH) * TILE + 200;

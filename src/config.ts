@@ -1,4 +1,7 @@
-export const TILE = 16;
+/** City tile size in world pixels. The world is drawn at ~10px per metre. */
+export const TILE = 32;
+/** Interior grid size in pixels. */
+export const ITILE = 16;
 export const BLOCK = 12; // 2 road tiles + 10 block tiles
 export const GAME_MIN_PER_SEC = 4;
 export const DAY = 1440;

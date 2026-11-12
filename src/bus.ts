@@ -16,6 +16,6 @@ export const bus = new Bus();
 
 export type ToastKind = 'info' | 'good' | 'bad' | 'warn';
 
-export function toast(msg: string, kind: ToastKind = 'info') {
-  bus.emit('toast', { msg, kind });
+export function toast(msg: string, kind: ToastKind = 'info', block?: number) {
+  bus.emit('toast', { msg, kind, block });
 }

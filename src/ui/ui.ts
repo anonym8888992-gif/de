@@ -1,6 +1,7 @@
+import { audio, initAudio, setMusic, setSfx, sfx } from '../audio';
 import { bus, type ToastKind } from '../bus';
 import {
-  BIZ, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS, type BizKind, type ProductId,
+  BIZ, DISTRICTS, GANGS, LAUNDER_FEE, PRODUCTS, PRODUCT_IDS, TILE, type BizKind, type ProductId,
 } from '../config';
 import { answer, introCalls, removeMsg, unread } from '../sim/phone';
 import {
@@ -70,12 +71,14 @@ export function initUI() {
   const root = $('ui');
   root.addEventListener('click', onClick);
   window.addEventListener('keydown', onKey);
-  bus.on('toast', ({ msg, kind }) => addToast(msg, kind));
+  bus.on('toast', ({ msg, kind, block }) => addToast(msg, kind, block));
+  bus.on('report', showReport);
+  bus.on('alarm', () => { const a = $('alarm'); a.classList.remove('on'); void a.offsetWidth; a.classList.add('on'); });
   bus.on('select', () => { ui.picker = null; render(); });
   bus.on('changed', render);
   bus.on('scene', () => { ui.picker = null; ui.modal = null; render(); });
   bus.on('saved', () => addToast('SAVED.', 'info'));
-  bus.on('ring', (m) => { if (view.started) addToast(`NEW MESSAGE FROM ${m.from}`, 'warn'); });
+  bus.on('ring', (m) => { if (view.started) { addToast(`NEW MESSAGE FROM ${m.from}`, 'warn'); sfx('ring'); } });
   bus.on('hover', tooltip);
   bus.on('upgradeFocus', (id: string) => { ui.upgradeFocus = id; render(); });
   bus.on('gameover', () => { ui.over = true; view.speed = 0; render(); });
@@ -93,6 +96,7 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === 'p' || e.key === 'P') toggle('phone');
   else if (e.key === 'c' || e.key === 'C') toggle('crew');
   else if (e.key === 'Tab') { e.preventDefault(); toggle('city'); }
+  else if (e.key === 'm' || e.key === 'M') setMusic(!audio.music);
   else if (e.key === 'Escape') {
     if (ui.picker) ui.picker = null;
     else if (ui.modal) ui.modal = null;
@@ -455,6 +459,8 @@ function optionsModal() {
   return `<h1 class="mt">OPTIONS</h1>
   <div class="opt" data-a="optCrt"><b>CRT FILTER</b><span class="${view.crt ? 'g' : 'r'}">${view.crt ? 'ON' : 'OFF'}</span></div>
   <div class="opt" data-a="optWobble"><b>SCREEN SWAY</b><span class="${view.wobble ? 'g' : 'r'}">${view.wobble ? 'ON' : 'OFF'}</span></div>
+  <div class="opt" data-a="optMusic"><b>MUSIC (M)</b><span class="${audio.music ? 'g' : 'r'}">${audio.music ? 'ON' : 'OFF'}</span></div>
+  <div class="opt" data-a="optSfx"><b>SOUND FX</b><span class="${audio.sfx ? 'g' : 'r'}">${audio.sfx ? 'ON' : 'OFF'}</span></div>
   <div class="btns"><button class="btn" data-a="save">SAVE NOW</button><button class="btn danger" data-a="quit">QUIT TO TITLE</button></div>`;
 }
 
@@ -481,6 +487,7 @@ function renderOver() {
 function onClick(e: MouseEvent) {
   const el = (e.target as HTMLElement).closest('[data-a]') as HTMLElement | null;
   if (!el || (el as HTMLButtonElement).disabled) return;
+  sfx('click');
   const a = el.dataset.a!;
   const id = Number(el.dataset.id);
   const v = el.dataset.v!;
@@ -493,7 +500,7 @@ function onClick(e: MouseEvent) {
     case 'selBlock': {
       view.selection = { type: 'block', id };
       const b = map.blocks[id];
-      bus.emit('focus', { x: (b.x + 5) * 16, y: (b.y + 5) * 16 });
+      bus.emit('focus', { x: (b.x + 5) * TILE, y: (b.y + 5) * TILE });
       bus.emit('select');
       break;
     }
@@ -501,7 +508,7 @@ function onClick(e: MouseEvent) {
       view.selection = { type: 'goon', id };
       ui.modal = null;
       const g = state.goons.find((x) => x.id === id);
-      if (g?.post) { const b = map.blocks[g.post.block]; bus.emit('focus', { x: (b.x + 5) * 16, y: (b.y + 5) * 16 }); }
+      if (g?.post) { const b = map.blocks[g.post.block]; bus.emit('focus', { x: (b.x + 5) * TILE, y: (b.y + 5) * TILE }); }
       bus.emit('select');
       break;
     }
@@ -571,6 +578,9 @@ function onClick(e: MouseEvent) {
     case 'delMsg': removeMsg(id); break;
     case 'optCrt': view.crt = !view.crt; bus.emit('crt'); break;
     case 'optWobble': view.wobble = !view.wobble; break;
+    case 'optMusic': setMusic(!audio.music); break;
+    case 'closeReport': $('report').classList.add('hidden'); break;
+    case 'optSfx': setSfx(!audio.sfx); break;
     case 'save': if (saveGame()) addToast('SAVED.', 'info'); break;
     case 'quit': location.reload(); return;
     case 'new': startGame(false); return;
@@ -593,15 +603,45 @@ function markRead() {
 // ---------------------------------------------------------------------------
 // toasts, tooltip, title
 
-function addToast(msg: string, kind: ToastKind) {
+function addToast(msg: string, kind: ToastKind, block?: number) {
   const box = $('toasts');
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
   el.textContent = msg;
+  if (block !== undefined) {
+    el.classList.add('go');
+    el.title = 'Show me';
+    el.addEventListener('click', () => {
+      if (view.scene === 'interior') bus.emit('exit');
+      const b = map.blocks[block];
+      view.selection = { type: 'block', id: block };
+      bus.emit('focus', { x: (b.x + 5) * TILE, y: (b.y + 5) * TILE });
+      bus.emit('select');
+      el.remove();
+    });
+  }
   box.prepend(el);
   while (box.children.length > 5) box.lastElementChild!.remove();
-  setTimeout(() => el.classList.add('out'), 6000);
-  setTimeout(() => el.remove(), 6500);
+  setTimeout(() => el.classList.add('out'), 7000);
+  setTimeout(() => el.remove(), 7500);
+}
+
+let reportTimer = 0;
+
+function showReport(r: { day: number; street: number; biz: number; laundered: number; sold: number; wages: number; net: number }) {
+  const el = $('report');
+  el.innerHTML = `<div class="rep" data-a="closeReport">
+    <h3>Day ${r.day} wrap-up</h3>
+    <div class="rl"><span>STREET SALES (${r.sold})</span><b class="g">${money(r.street)}</b></div>
+    <div class="rl"><span>BUSINESSES</span><b class="g">${money(r.biz)}</b></div>
+    <div class="rl"><span>WAGES</span><b class="r">-${money(r.wages)}</b></div>
+    <div class="rl"><span>LAUNDERED</span><b class="c">${money(r.laundered)}</b></div>
+    <div class="rl tot"><span>NET</span><b class="${r.net >= 0 ? 'g' : 'r'}">${money(r.net)}</b></div>
+  </div>`;
+  el.classList.remove('hidden');
+  sfx(r.net >= 0 ? 'cash' : 'lose');
+  window.clearTimeout(reportTimer);
+  reportTimer = window.setTimeout(() => el.classList.add('hidden'), 9000);
 }
 
 function tooltip(h: { type: 'block' | 'lot'; id: number; x: number; y: number } | null) {
@@ -614,7 +654,8 @@ function tooltip(h: { type: 'block' | 'lot'; id: number; x: number; y: number } 
   } else {
     const b = map.blocks[h.id];
     const o = state.turf[h.id].owner;
-    el.innerHTML = `<b>${esc(b.name)}</b><small>${DISTRICTS[b.district].name.toUpperCase()} · ${ownerTag(o)}</small>`;
+    const hint = o === 0 ? `${guardsOn(h.id).length} OF YOUR PEOPLE HERE` : adjacentToPlayer(h.id) ? `DEFENSE ${blockDefense(h.id).toFixed(1)} · CLICK TO TAKE IT` : "NOT NEXT TO YOUR TURF";
+    el.innerHTML = `<b>${esc(b.name)}</b><small>${DISTRICTS[b.district].name.toUpperCase()} · ${ownerTag(o)}</small><small class="th">${hint}</small>`;
   }
   el.style.left = `${h.x + 18}px`;
   el.style.top = `${h.y + 18}px`;
@@ -644,6 +685,7 @@ function startGame(cont: boolean) {
     introCalls();
   }
   view.started = true;
+  initAudio();
   view.speed = 1;
   view.selection = { type: 'block', id: map.lots[map.starterLot].block };
   $('title').classList.add('gone');
