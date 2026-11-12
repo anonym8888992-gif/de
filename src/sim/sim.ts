@@ -671,14 +671,14 @@ function rivalAI() {
     const neutral = [...front].filter((b) => state.turf[b].owner === -1);
     const attacking = state.ops.some((o) => o.kind === 'attack' && o.gang === gi);
     const truce = state.minutes < gs.truceUntil;
-    if (mine.length && !attacking && !truce && Math.random() < 0.65 && state.minutes > 30 * 60) {
+    if (mine.length && !attacking && !truce && Math.random() < 0.65 && state.chapter >= 1 && Math.random() < 0.4 + state.chapter * 0.1) {
       const target = pick(mine);
       const from = theirs.find((b) => neighbours(map, b).includes(target)) ?? pick(theirs);
       const v = makeVehicle('rival', curb(from), routeBetween(from, target), 32);
       const op = newOp('attack', gi, [], target, target, v);
       op.power = 5 * gs.power * (0.8 + Math.random() * 0.6);
       bus.emit('changed');
-    } else if (neutral.length && Math.random() < 0.5) {
+    } else if (neutral.length && Math.random() < 0.15 + state.chapter * 0.06) {
       const target = pick(neutral);
       state.turf[target] = { owner: gi, inf: 40 };
       toast(`${GANGS[gi].name} moved into ${map.blocks[target].name}.`, 'warn', target);
