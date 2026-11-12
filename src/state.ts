@@ -125,6 +125,9 @@ export interface GameState {
   stats: { earned: number; sold: number; laundered: number; arrests: number; deaths: number; hired: number; imports: number; taken: number; orders: number; made: Partial<Record<ProductId, number>> };
   ledger: { street: number; biz: number; laundered: number; sold: number };
   objectives: string[];
+  /** story chapter index (0-based) and highest chapter whose intro was shown */
+  chapter: number;
+  storySeen: number;
 }
 
 export interface View {
@@ -138,8 +141,8 @@ export interface View {
   wobble: boolean;
 }
 
-export const SAVE_KEY = 'neon-kingpin-v3';
-const VERSION = 3;
+export const SAVE_KEY = 'seven-sins-v1';
+const VERSION = 4;
 
 export const view: View = { scene: 'city', lot: null, selection: null, placing: null, speed: 1, started: false, crt: true, wobble: true };
 
@@ -201,6 +204,8 @@ export function newGame(): GameState {
     nextCall: 21 * 60,
     stats: { earned: 0, sold: 0, laundered: 0, arrests: 0, deaths: 0, hired: 0, imports: 0, taken: 0, orders: 0, made: {} },
     objectives: [],
+    chapter: 0,
+    storySeen: -1,
   };
   return s;
 }
